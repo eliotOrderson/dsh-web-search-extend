@@ -1,0 +1,65 @@
+{
+  "name": "dsh-web-search-extend",
+  "description": "In-place replacement for the official DeepSeek Harness web-search plugin: takes over web-search-deepseek (same settings namespace + provider id deepseek-official), keeps the old web_search tool, and routes through a pluggable SearchAdapter layer (DeepSeek / Tavily keyless / demo). Layered modular, adapter-pluggable.",
+  "version": "0.1.0",
+  "publishConfig": {
+    "access": "public"
+  },
+  "type": "module",
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web"
+    }
+  },
+  "main": "lib/index.js",
+  "types": "lib/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./lib/index.d.ts",
+      "default": "./lib/index.js"
+    },
+    "./invariant": {
+      "types": "./lib/invariant.d.ts",
+      "default": "./lib/invariant.js"
+    },
+    "./client": "./lib/client.js",
+    "./src/*": "./src/*",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "cordis.patch.yml",
+    "lib/client.js",
+    "lib/index.js",
+    "lib/invariant.js",
+    "lib/**/*.d.ts"
+  ],
+  "license": "MIT",
+  "peerDependencies": {
+    "@deepseek-ai/dsh-agent": ">=0.0.1-rc <2",
+    "@deepseek-ai/dsh-credentials": ">=0.0.1-rc <2",
+    "@deepseek-ai/dsh-invariants": ">=0.0.1-rc <2",
+    "@deepseek-ai/dsh-launch-environment": ">=0.0.1-rc <2",
+    "@deepseek-ai/dsh-session": ">=0.0.1-rc <2",
+    "@deepseek-ai/dsh-settings": ">=0.0.1-rc <2",
+    "@deepseek-ai/dsh-web": ">=0.0.1-rc <2",
+    "@deepseek-ai/cordis": ">=4.0.0-rc <5"
+  },
+  "dependencies": {
+    "@deepseek-ai/schemastery": "^3.18.1",
+    "@tavily/core": "^0.7.7"
+  },
+  "devDependencies": {
+    "@deepseek-ai/dsh-agent": ">=0.0.1-rc <2",
+    "@deepseek-ai/dsh-credentials": ">=0.0.1-rc <2",
+    "@deepseek-ai/dsh-credentials-local": ">=0.0.1-rc <2",
+    "@deepseek-ai/dsh-invariants": ">=0.0.1-rc <2",
+    "@deepseek-ai/dsh-launch-environment": ">=0.0.1-rc <2",
+    "@deepseek-ai/dsh-session": ">=0.0.1-rc <2",
+    "@deepseek-ai/dsh-settings": ">=0.0.1-rc <2",
+    "@deepseek-ai/dsh-web": ">=0.0.1-rc <2",
+    "@deepseek-ai/cordis": ">=4.0.0-rc <5"
+  }
+}

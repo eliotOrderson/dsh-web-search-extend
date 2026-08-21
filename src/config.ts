@@ -1,0 +1,60 @@
+/**
+ * Config layer: the schemastery schema for the (replaced) `web-search-deepseek`
+ * Settings section and shared defaults.
+ *
+ * The section's field set is a SUPERSET of the official `@deepseek-ai/
+ * dsh-web-search-deepseek` config, extended with a `provider` selector and
+ * per-provider subsections. `apiKeyEnv`/`baseURL` carry no default here:
+ * each adapter supplies its own, so switching `provider` re-targets credentials
+ * and endpoint automatically. This module knows nothing about HTTP.
+ * @module dsh-web-search-extend/config
+ */
+import z from "@deepseek-ai/schemastery";
+
+/** Default backend selected when config omits `provider` (keyless, testable). */
+export const DEFAULT_PROVIDER = "tavily";
+/** Fallback credential-reference name when no adapter supplies one. */
+export const DEFAULT_API_KEY_ENV = "TAVILY_API_KEY";
+
+/** Tavily defaults + env names. */
+export const TAVILY_API_KEY_ENV = "TAVILY_API_KEY";
+export const TAVILY_BASE_URL_ENV = "TAVILY_BASE_URL";
+export const TAVILY_DEFAULT_BASE_URL = "https://api.tavily.com";
+
+/** DeepSeek defaults + env names (mirrors the official provider). */
+export const DEEPSEEK_API_KEY_ENV = "DEEPSEEK_API_KEY";
+export const DEEPSEEK_SEARCH_BASE_URL_ENV = "DEEPSEEK_SEARCH_BASE_URL";
+export const DEEPSEEK_DEFAULT_BASE_URL = "https://api.deepseek.com/anthropic/v1";
+export const DEEPSEEK_DEFAULT_MODEL = "deepseek-v4-flash";
+export const DEEPSEEK_DEFAULT_API_VERSION = "2023-06-01";
+export const DEEPSEEK_DEFAULT_MAX_TOKENS = 4096;
+export const DEEPSEEK_DEFAULT_MAX_USES = 5;
+
+/**
+ * Plugin config. `provider` selects which adapter runs; `apiKey`/`apiKeyEnv`/
+ * `baseURL` are cross-cutting overrides; each adapter reads its own subsection
+ * (`deepseek`, `tavily`, `demo`) for backend-specific knobs.
+ */
+export const Config = z.object({
+	provider: z.string().default(DEFAULT_PROVIDER),
+	apiKey: z.string().role("secret"),
+	apiKeyEnv: z.string().role("credential-ref"),
+	baseURL: z.string(),
+	deepseek: z.object({
+		model: z.string().default(DEEPSEEK_DEFAULT_MODEL),
+		apiVersion: z.string().default(DEEPSEEK_DEFAULT_API_VERSION),
+		maxTokens: z.number().step(1).min(1).default(DEEPSEEK_DEFAULT_MAX_TOKENS),
+		maxUses: z.number().step(1).min(1).default(DEEPSEEK_DEFAULT_MAX_USES),
+	}),
+	tavily: z.object({
+		searchDepth: z.string().default("basic"),
+		topic: z.string().default("general"),
+		maxResults: z.number().step(1).min(1).default(5),
+		includeAnswer: z.boolean().default(false),
+		timeRange: z.string().default(""),
+	}),
+	demo: z.object({}),
+});
+
+/** Parsed config type, derived from the schema (schemastery has no `z.infer`). */
+export type ConfigType = ReturnType<typeof Config>;

@@ -1,0 +1,15 @@
+# dsh-web-search-extend bundle layer: inserts this plugin as the replacement
+# of the official web-search-deepseek.
+#
+# The official entry is disabled by the profile overlay:
+#   - id: web-search-deepseek
+#     disabled: true
+#
+# This entry registers under its own id (`web-search-extend`) but takes over
+# the official Settings namespace (`web-search-deepseek`) and the official
+# provider slot (`deepseek-official`), so the config page and the old
+# `web_search` tool stay exactly where they were.
+- insert:
+    - id: web-search-extend
+      name: 'dsh-web-search-extend'
+      config: {}
