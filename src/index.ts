@@ -70,7 +70,7 @@ function resolveOptions(ctx: Context, getConfig: () => ConfigType, registry: Ada
 			adapter,
 			settings,
 			recordRequest: (request) => {
-				ctx.get("agents")?.currentInitiator()?.session.append("web/search-extend-request", request);
+				ctx.get("agents")?.currentInitiator()?.session.append("web/deepseek-search-llm-request", request);
 			},
 		};
 	};
