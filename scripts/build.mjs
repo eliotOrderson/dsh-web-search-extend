@@ -7,6 +7,7 @@ const esbuildPath = '/home/hydenix/Workspace/deepseek-harness-plugin/dsh-agent-b
 const { build: esbuild } = await import(esbuildPath + '/lib/main.js')
 
 const external = [
+  // peerDependencies: harness-provided, never bundle
   '@deepseek-ai/dsh-agent',
   '@deepseek-ai/dsh-credentials',
   '@deepseek-ai/dsh-invariants',
@@ -16,7 +17,6 @@ const external = [
   '@deepseek-ai/dsh-web',
   '@deepseek-ai/cordis',
   '@deepseek-ai/schemastery',
-  '@tavily/core',
 ]
 
 // Host bundle: src/index.ts → lib/index.js
