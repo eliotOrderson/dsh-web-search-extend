@@ -5,12 +5,12 @@
 #   - id: web-search-deepseek
 #     disabled: true
 #
-# This entry registers under its own id (`web-search-extend`) but takes over
+# This entry registers under its own id (`dsh-web-search-extend`) but takes over
 # the official Settings namespace (`web-search-deepseek`) and the official
 # provider slot (`deepseek-official`), so the config page and the old
 # `web_search` tool stay exactly where they were.
 - insert:
-    - id: web-search-extend
+    - id: dsh-web-search-extend
       name: '@mr.robot/dsh-web-search-extend'
       config: {}
 

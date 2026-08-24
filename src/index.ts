@@ -6,7 +6,7 @@
  * is not accidentally disabled by the patch that disables the official:
  * - settings namespace: `web-search-deepseek` (config page same position)
  * - provider id:        `deepseek-official` (seam/agent selection unchanged)
- * - cordis plugin name: `web-search-extend` (distinct loader identity)
+ * - cordis plugin name: `dsh-web-search-extend` (distinct loader identity)
  *
  * The agent keeps calling the OLD `web_search` tool; that tool stays on
  * `ctx.web.search`, which now routes through this plugin's provider into the
@@ -23,7 +23,7 @@ import { AdapterRegistry } from "./core/registry.js";
 import { createDefaultRegistry } from "./adapters/index.js";
 
 /** Cordis plugin name — independent from the official one on purpose. */
-const name = "web-search-extend";
+const name = "dsh-web-search-extend";
 /** The web seam this provider registers into. */
 const inject = ["web"];
 /** Fallback env name for the base URL when no adapter supplies one. */

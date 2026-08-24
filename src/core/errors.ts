@@ -14,7 +14,7 @@ export function providerError(message: string, cause?: unknown): WebError {
 /** No credential could be resolved for a key-required backend. */
 export function credentialMissing(ref: string): WebError {
 	return new WebError(
-		`Search has no API key for "${ref}"; store it through the credentials service (the web Models page writes it), export it in the launching environment, or set a literal "apiKey" in the web-search-extend config`,
+		`Search has no API key for "${ref}"; store it through the credentials service (the web Models page writes it), export it in the launching environment, or set a literal "apiKey" in the dsh-web-search-extend config`,
 		"WEB_PROVIDER_CREDENTIAL_MISSING",
 	);
 }
