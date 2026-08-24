@@ -11,5 +11,9 @@
 # `web_search` tool stay exactly where they were.
 - insert:
     - id: web-search-extend
-      name: 'dsh-web-search-extend'
+      name: '@mr.robot/dsh-web-search-extend'
       config: {}
+
+- id: web-search-deepseek
+  disabled: true
+

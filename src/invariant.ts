@@ -5,7 +5,7 @@
  */
 import type { Context } from "@deepseek-ai/cordis";
 import type {} from "@deepseek-ai/dsh-invariants";
-const PACKAGE_NAME = "dsh-web-search-extend";
+const PACKAGE_NAME = "@mr.robot/dsh-web-search-extend";
 /** Cordis companion plugin name. */
 const name = "web-search-extend-invariant";
 /** Service required before the companion can reserve package ownership. */
