@@ -11,6 +11,8 @@ ESBUILD="/home/hydenix/Workspace/deepseek-harness-plugin/dsh-agent-bridge/node_m
 
 # peerDependencies: provided by DSH harness, exclude from bundle
 EXTERNAL="--external:@deepseek-ai/dsh-agent --external:@deepseek-ai/dsh-credentials --external:@deepseek-ai/dsh-invariants --external:@deepseek-ai/dsh-launch-environment --external:@deepseek-ai/dsh-session --external:@deepseek-ai/dsh-settings --external:@deepseek-ai/dsh-web --external:@deepseek-ai/cordis --external:@deepseek-ai/schemastery"
+# CJS packages: cannot bundle into ESM (esbuild CJS interop uses require())
+EXTERNAL="$EXTERNAL --external:@tavily/core"
 
 echo "=== Bundling host → lib/index.js ==="
 "$ESBUILD" src/index.ts --bundle --format=esm --platform=node --target=node18 --outfile=lib/index.js --minify --tree-shaking --log-level=info $EXTERNAL

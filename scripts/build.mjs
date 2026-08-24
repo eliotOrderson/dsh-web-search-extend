@@ -17,6 +17,8 @@ const external = [
   '@deepseek-ai/dsh-web',
   '@deepseek-ai/cordis',
   '@deepseek-ai/schemastery',
+  // CJS packages: cannot bundle into ESM (esbuild CJS interop uses require())
+  '@tavily/core',
 ]
 
 // Host bundle: src/index.ts → lib/index.js
