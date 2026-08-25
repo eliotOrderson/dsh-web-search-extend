@@ -38,13 +38,28 @@ export const DEEPSEEK_DEFAULT_MAX_USES = 5;
 export const Config = z.object({
 	provider: z.string().default(DEFAULT_PROVIDER),
 	apiKey: z.string().role("secret"),
-	apiKeyEnv: z.string().role("credential-ref"),
+	apiKeyEnv: z.string().role("credential-ref").default(TAVILY_API_KEY_ENV),
 	baseURL: z.string(),
+	/** Fetch takeover (design s9): "local" registers nothing new; "adapter" also exposes extract as a fetch provider. */
+	fetchBackend: z.string().default("local"),
+	tools: z.object({
+		extract: z.boolean().default(true),
+		crawl: z.boolean().default(true),
+		map: z.boolean().default(true),
+		research: z.boolean().default(false),
+	}),
+	limits: z.object({
+		extractMaxUrls: z.number().step(1).min(1).default(10),
+		crawlMaxPages: z.number().step(1).min(1).default(10),
+		mapMaxUrls: z.number().step(1).min(1).default(100),
+		perPageChars: z.number().step(1).min(1).default(20000),
+	}),
 	deepseek: z.object({
 		model: z.string().default(DEEPSEEK_DEFAULT_MODEL),
 		apiVersion: z.string().default(DEEPSEEK_DEFAULT_API_VERSION),
 		maxTokens: z.number().step(1).min(1).default(DEEPSEEK_DEFAULT_MAX_TOKENS),
 		maxUses: z.number().step(1).min(1).default(DEEPSEEK_DEFAULT_MAX_USES),
+		apiKeyEnv: z.string().role("credential-ref").default(DEEPSEEK_API_KEY_ENV),
 	}),
 	tavily: z.object({
 		searchDepth: z.string().default("basic"),
@@ -52,6 +67,9 @@ export const Config = z.object({
 		maxResults: z.number().step(1).min(1).default(5),
 		includeAnswer: z.boolean().default(false),
 		timeRange: z.string().default(""),
+		extractDepth: z.string().default("basic"),
+		researchModel: z.string().default("auto"),
+		apiKeyEnv: z.string().role("credential-ref").default(TAVILY_API_KEY_ENV),
 	}),
 	demo: z.object({}),
 });

@@ -63,44 +63,60 @@ export class ExtensibleWebSearchProvider implements WebSearchProvider {
 
 	async search(request: WebSearchRequest, signal?: AbortSignal): Promise<WebSearchResult> {
 		const o = this.resolveOptions();
-		if (o.adapter === undefined) throw providerError(`Unknown search adapter "${o.provider}"`);
-		const apiKey = await this.apiKey(o, signal);
-		throwIfSearchAborted(signal);
-		const runtime: AdapterRuntime = {
-			apiKey,
-			apiKeyEnv: o.apiKeyEnv,
-			baseURL: o.baseURL,
-			settings: o.settings,
-			recordRequest: o.recordRequest,
-		};
-		throwIfSearchAborted(signal);
+		const { adapter, runtime } = await resolveExecution(o, signal);
 		try {
-			return await abortable(o.adapter.search(request, runtime, signal), signal);
+			return await abortable(adapter.search(request, runtime, signal), signal);
 		} catch (error) {
 			if (signal?.aborted === true || isAbortError(error)) throw searchAborted(signal, error);
 			if (error instanceof WebError) throw error;
 			throw providerError(`Search via "${o.provider}" failed: ${String(error)}`, { cause: error });
 		}
 	}
+}
 
-	/**
-	 * Resolve one operation's credential without retaining it on the provider.
-	 * Keyless adapters may return `undefined`; key-required adapters throw
-	 * `WEB_PROVIDER_CREDENTIAL_MISSING`.
-	 */
-	private async apiKey(o: ResolvedOptions, signal?: AbortSignal): Promise<string | undefined> {
-		throwIfSearchAborted(signal);
-		if (o.adapter === undefined) return undefined;
-		if (o.apiKey !== undefined && o.apiKey.length > 0) return o.apiKey;
-		let resolved: string | undefined;
-		try {
-			resolved = await abortable(o.resolveApiKey?.() ?? Promise.resolve(undefined), signal);
-		} catch (error) {
-			if (signal?.aborted === true || isAbortError(error)) throw searchAborted(signal, error);
-			throw providerError(`Credential resolution failed: ${String(error)}`, { cause: error });
-		}
-		if (resolved !== undefined && resolved.length > 0) return resolved;
-		if (o.adapter.requiresApiKey) throw credentialMissing(o.apiKeyEnv);
-		return undefined;
+/** One operation's ready-to-dispatch target: guarded adapter plus credentialed runtime. */
+export interface ExecutionTarget {
+	readonly adapter: SearchAdapter;
+	readonly runtime: AdapterRuntime;
+}
+
+/**
+ * Resolve one operation's execution target from a config snapshot. Shared by
+ * `ExtensibleWebSearchProvider` and the tool layer so the unknown-adapter
+ * guard, credential resolution, and preflight abort checks stay single-sourced.
+ */
+export async function resolveExecution(o: ResolvedOptions, signal?: AbortSignal): Promise<ExecutionTarget> {
+	if (o.adapter === undefined) throw providerError(`Unknown search adapter "${o.provider}"`);
+	const apiKey = await resolveApiKey(o, signal);
+	throwIfSearchAborted(signal);
+	return {
+		adapter: o.adapter,
+		runtime: {
+			apiKey,
+			apiKeyEnv: o.apiKeyEnv,
+			baseURL: o.baseURL,
+			settings: o.settings,
+			recordRequest: o.recordRequest,
+		},
+	};
+}
+
+/**
+ * Resolve one operation's credential without retaining it anywhere. Keyless
+ * adapters may return `undefined`; key-required adapters throw
+ * `WEB_PROVIDER_CREDENTIAL_MISSING`.
+ */
+async function resolveApiKey(o: ResolvedOptions, signal?: AbortSignal): Promise<string | undefined> {
+	throwIfSearchAborted(signal);
+	if (o.apiKey !== undefined && o.apiKey.length > 0) return o.apiKey;
+	let resolved: string | undefined;
+	try {
+		resolved = await abortable(o.resolveApiKey?.() ?? Promise.resolve(undefined), signal);
+	} catch (error) {
+		if (signal?.aborted === true || isAbortError(error)) throw searchAborted(signal, error);
+		throw providerError(`Credential resolution failed: ${String(error)}`, { cause: error });
 	}
+	if (resolved !== undefined && resolved.length > 0) return resolved;
+	if (o.adapter !== undefined && o.adapter.requiresApiKey) throw credentialMissing(o.apiKeyEnv);
+	return undefined;
 }

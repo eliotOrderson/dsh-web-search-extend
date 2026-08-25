@@ -1,7 +1,7 @@
 {
   "name": "@mr.robot/dsh-web-search-extend",
   "description": "In-place replacement for the official DeepSeek Harness web-search plugin: takes over web-search-deepseek (same settings namespace + provider id deepseek-official), keeps the old web_search tool, and routes through a pluggable SearchAdapter layer (DeepSeek / Tavily keyless / demo). Layered modular, adapter-pluggable.",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "publishConfig": {
     "access": "public"
   },
@@ -37,6 +37,9 @@
     "lib/**/*.d.ts"
   ],
   "license": "MIT",
+  "scripts": {
+    "test": "npm --prefix tests test"
+  },
   "peerDependencies": {
     "@deepseek-ai/dsh-agent": ">=0.0.1-rc <2",
     "@deepseek-ai/dsh-credentials": ">=0.0.1-rc <2",
@@ -44,6 +47,7 @@
     "@deepseek-ai/dsh-launch-environment": ">=0.0.1-rc <2",
     "@deepseek-ai/dsh-session": ">=0.0.1-rc <2",
     "@deepseek-ai/dsh-settings": ">=0.0.1-rc <2",
+    "@deepseek-ai/dsh-tools": ">=0.0.1-rc <2",
     "@deepseek-ai/dsh-web": ">=0.0.1-rc <2",
     "@deepseek-ai/cordis": ">=4.0.0-rc <5",
     "@deepseek-ai/schemastery": "^3.18.1"
@@ -59,6 +63,7 @@
     "@deepseek-ai/dsh-launch-environment": ">=0.0.1-rc <2",
     "@deepseek-ai/dsh-session": ">=0.0.1-rc <2",
     "@deepseek-ai/dsh-settings": ">=0.0.1-rc <2",
+    "@deepseek-ai/dsh-tools": ">=0.0.1-rc <2",
     "@deepseek-ai/dsh-web": ">=0.0.1-rc <2",
     "@deepseek-ai/cordis": ">=4.0.0-rc <5",
     "@deepseek-ai/schemastery": "^3.18.1"
