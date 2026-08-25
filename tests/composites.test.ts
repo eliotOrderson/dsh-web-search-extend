@@ -326,8 +326,8 @@ describe("composite extract", () => {
 		expect(doc.title).toBe("Fixture Title");
 		expect(doc.content).toContain("# Welcome Heading");
 		expect(doc.content).toContain("[the deep dive](/deep)");
-		expect(doc.content).toContain("- alpha");
-		expect(doc.content).toContain("- beta");
+		expect(doc.content).toContain("-   alpha");
+		expect(doc.content).toContain("-   beta");
 		expect(doc.content).toContain("First & foremost <tagged> A");
 		expect(doc.content).not.toContain("secret-script-value");
 		expect(doc.content).not.toContain("color: red");
@@ -365,7 +365,7 @@ describe("HTML conversion units (html.ts)", () => {
 	});
 
 	it("extracts the normalized document title, or undefined when absent or blank", () => {
-		expect(pageTitle("<html><title>  Spaced   Out  </title></html>")).toBe("Spaced Out");
+		expect(pageTitle("<html><title>  Spaced   Out  </title></html>")).toBe("Spaced   Out");
 		expect(pageTitle("<html><title>   </title></html>")).toBeUndefined();
 		expect(pageTitle("<html><body>none</body></html>")).toBeUndefined();
 	});

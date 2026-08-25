@@ -14,11 +14,15 @@ const external = [
   '@deepseek-ai/dsh-launch-environment',
   '@deepseek-ai/dsh-session',
   '@deepseek-ai/dsh-settings',
+  '@deepseek-ai/dsh-tools',
   '@deepseek-ai/dsh-web',
   '@deepseek-ai/cordis',
   '@deepseek-ai/schemastery',
   // CJS packages: cannot bundle into ESM (esbuild CJS interop uses require())
   '@tavily/core',
+  'turndown',
+  '@joplin/turndown-plugin-gfm',
+  'domino',
 ]
 
 // Host bundle: src/index.ts → lib/index.js
