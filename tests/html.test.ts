@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { htmlToMarkdown, htmlToText, pageTitle } from "../src/core/html.js";
+import { extractHrefs, htmlToMarkdown, htmlToText, pageTitle } from "../src/core/html.js";
 
 describe("HTML conversion via turndown + GFM + domino", () => {
 	it("converts GFM tables to pipe tables", () => {
@@ -19,5 +19,13 @@ describe("HTML conversion via turndown + GFM + domino", () => {
 
 	it("collapses whitespace in htmlToText", () => {
 		expect(htmlToText("<div>a\n\n   b</div>")).toBe("a b");
+	});
+
+	it("skips DOM conversion when nesting exceeds the official depth guard", () => {
+		const html = "<div>".repeat(513) + "x" + "</div>".repeat(513);
+		expect(htmlToMarkdown(html)).toBe(html.trim());
+		expect(htmlToText(html)).toBe(html.trim());
+		expect(pageTitle(html)).toBeUndefined();
+		expect(extractHrefs(html, "https://example.com/")).toEqual([]);
 	});
 });
