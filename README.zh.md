@@ -51,10 +51,15 @@ src/
   config.ts           # 配置层：官方配置的超集 schema + 默认值
   core/               # 接缝集成层（harness 接线，零厂商代码）
     provider.ts       # ExtensibleWebSearchProvider（id = deepseek-official）
+    capabilities.ts   # capabilitiesOf()：能力由方法存在性推导
+    router.ts         # execute()：native → composite → WEB_OP_UNSUPPORTED 阶梯
+    composites.ts     # 通用 extract/map/crawl（注入 FetchLike，纯算法）
+    html.ts           # 朴素 HTML → text/markdown 转换（兼容下限）
     registry.ts       # AdapterRegistry（可插拔机制）
     abort.ts          # 取消处理（横切）
     errors.ts         # WebError 分类（横切）
   adapters/           # 适配层（每后端一文件，可插拔）
+  tools/              # 模型面工具（extract/crawl/map/research）+ 共享格式化器
     deepseek.ts       # DeepSeekAdapter（官方 Anthropic-compatible API，保留）
     tavily.ts         # TavilyAdapter（keyless）+ 响应映射
     demo.ts           # DemoAdapter（示例，零网络）
@@ -63,59 +68,129 @@ src/
 
 新增 provider = 新增 `adapters/<vendor>.ts` 实现 `SearchAdapter` 并在 `createDefaultRegistry()` 注册；core 不动。
 
-## 适配器契约
+## WebAdapter 契约（v2）
 
 ```ts
-interface SearchAdapter {
-  readonly id: string;
+interface WebAdapter {
+  readonly id: string;                        // 同时也是注册的 ctx.web provider id
   readonly label: string;
   readonly requiresApiKey: boolean;
   readonly defaultApiKeyEnv: string;
   readonly baseURLEnv: string;
   readonly defaultBaseURL: string;
   available(runtime: AdapterRuntime): boolean;
-  search(request: WebSearchRequest, runtime: AdapterRuntime, signal?: AbortSignal): Promise<WebSearchResult>;
+  search(request, runtime, signal?): Promise<WebSearchResult>;
+  // 可选的原生操作——能力由方法存在性推导，无独立声明表：
+  extract?(req: ExtractRequest, runtime, signal?): Promise<ExtractResult>;
+  crawl?(req: CrawlRequest, runtime, signal?): Promise<CrawlResult>;
+  map?(req: MapRequest, runtime, signal?): Promise<MapResult>;
+  submitResearch?(input: string, runtime, signal?): Promise<ResearchSubmission>;
+  pollResearch?(requestId: string, runtime, signal?): Promise<ResearchStatus>;
 }
 ```
 
-## 内置适配器
+每个操作都走路由阶梯：**native 方法 → composite（基于 fetch 接缝的通用
+extract/map/crawl）→ 结构化 WEB_OP_UNSUPPORTED**。新增 provider = 一个实现
+WebAdapter 的文件；core 永远不改。
 
-| id | 后端 | requiresApiKey | 说明 |
-|---|---|---|---|
-| `deepseek` | DeepSeek Anthropic-compatible Messages API | **是** | 保留官方后端（model/apiVersion/maxTokens/maxUses） |
-| `tavily` | Tavily Search（`@tavily/core`） | **否**（keyless） | `answer`→`content`（开启时），`results[]`→`sources[]` |
-| `demo` | 无（固定） | 否 | 零配置示例，证明可插拔 |
 
-## 配置（扩展后的 `web-search-deepseek` 段）
+## 配置（扩展后的 web-search-deepseek 段）
 
 | 键 | 默认 | 含义 |
-|---|---|---|
-| `provider` | `tavily` | 每次搜索使用哪个适配器 |
-| `apiKey` | 省略 | 字面 key（secret） |
-| `apiKeyEnv` | 按 provider | 凭据引用：`DEEPSEEK_API_KEY` / `TAVILY_API_KEY`（回退 `DEEPSEEK_API_KEY`） |
-| `baseURL` | 按 provider | 端点主机根；回退到适配器 env（`DEEPSEEK_SEARCH_BASE_URL` / `TAVILY_BASE_URL`） |
-| `deepseek.*` | `model`=`deepseek-v4-flash`、`apiVersion`=`2023-06-01`、`maxTokens`=4096、`maxUses`=5 | 官方 deepseek 参数 |
-| `tavily.*` | `searchDepth`=`basic`、`topic`=`general`、`maxResults`=5、`includeAnswer`=false、`timeRange`=`""` | Tavily 参数 |
+| :--- | :--- | :--- |
+| `provider` | `tavily` | 每次搜索使用哪个适配器：tavily / deepseek / demo。 |
+| `apiKey` | 省略 | 字面 key（secret 角色）。官方设置卡会把值写入 `apiKeyEnv` 指向的 ref，而不是设置文件。 |
+| `apiKeyEnv` | `TAVILY_API_KEY` | 顶层凭据引用：设置卡的 badge 与保存目标。当其值为受管 ref（`TAVILY_API_KEY` / `DEEPSEEK_API_KEY`）时，`apply()` 会在 provider 变更时自动同步为当前 provider 的默认 ref，使 badge 跟随 provider；任意自定义 ref 不覆盖。 |
+| `baseURL` | 按 provider | 端点主机根；回退到适配器 env（`DEEPSEEK_SEARCH_BASE_URL` / `TAVILY_BASE_URL`）。 |
+| `fetchBackend` | `"local"` | `local`：不动现有 fetch provider。`"adapter"`：额外注册 `web-search-extend` WebFetchProvider 提供单 URL extract（要求当前适配器有**原生** extract，如 tavily；用 `fetchProvider` / `DSH_WEB_FETCH_PROVIDER` 选择）。 |
+| `tools.extract` | `true` | 注册 `web_extract`。 |
+| `tools.crawl` | `true` | 注册 `web_crawl`。 |
+| `tools.map` | `true` | 注册 `web_map`。 |
+| `tools.research` | `false` | 注册 `web_research` + `web_research_status`（耗 credits，默认关）。 |
+| `limits.extractMaxUrls` | `10` | 每次 web_extract 的最大 URL 数。 |
+| `limits.crawlMaxPages` | `10` | 每次 web_crawl 的最大页数。 |
+| `limits.mapMaxUrls` | `100` | 每次 web_map 的最大 URL 数。 |
+| `limits.perPageChars` | `20000` | 提取/爬取内容的单页渲染上限。 |
+| `deepseek.model` | `deepseek-v4-flash` | 官方 DeepSeek 模型 id。 |
+| `deepseek.apiVersion` | `2023-06-01` | Messages API 版本。 |
+| `deepseek.maxTokens` | `4096` | 最大补全 token。 |
+| `deepseek.maxUses` | `5` | 每次请求最多搜索次数。 |
+| `deepseek.apiKeyEnv` | `DEEPSEEK_API_KEY` | deepseek 的凭据 ref（子节覆盖）。 |
+| `tavily.searchDepth` | `basic` | basic / advanced / fast / ultra-fast。 |
+| `tavily.topic` | `general` | general / news / finance。 |
+| `tavily.maxResults` | `5` | 结果上限。 |
+| `tavily.includeAnswer` | `false` | 附带生成式答案（映射到 content）。 |
+| `tavily.timeRange` | `""` | day / week / month / year 时间限制。 |
+| `tavily.extractDepth` | `basic` | native extract + crawl 使用：basic / advanced。 |
+| `tavily.researchModel` | `auto` | research 任务：mini / pro / auto。 |
+| `tavily.apiKeyEnv` | `TAVILY_API_KEY` | tavily 的凭据 ref（子节覆盖）。 |
+
+```yaml
+- id: web-search-deepseek
+  name: 'dsh-web-search-extend'
+  config:
+    provider: tavily            # 或：deepseek | demo
+    tools:
+      research: true            # 打开耗 credits 的 research 工具
+    limits:
+      extractMaxUrls: 10
+    tavily:
+      searchDepth: basic
+      includeAnswer: true
+```
+
+key ref 按 provider 各自解析，**无跨 provider 回退**（config.apiKeyEnv → 子节
+apiKeyEnv → adapter 默认；badge 机制与受管 ref 自动同步见 AGENTS.md）。
+
+
+## 模型面工具
+
+| 工具 | 参数 | 行为 |
+| :--- | :--- | :--- |
+| `web_search` | `queries: string[]` | 官方工具，未改动——经所选 provider 路由。 |
+| `web_extract` | `urls: string[]`、`query?`、`format?` | 已知 URL 的可读内容（markdown/text）。tavily 原生；通用 composite 兜底。 |
+| `web_crawl` | `url`、`maxPages?`、`includeDomains?`、`excludeDomains?` | 站点有界爬取。tavily 原生；BFS composite 兜底。 |
+| `web_map` | `url`、`maxUrls?` | 枚举站点 URL。tavily 原生；sitemap/robots composite 兜底。 |
+| `web_research` | `input` | 提交异步深度研究任务（耗 credits！）；返回 requestId。 |
+| `web_research_status` | `requestId` | 轮询研究任务到终态；随后返回内容 + 来源列表。 |
+
+工具不随 provider 切换而消失——切换 provider 只改变每个调用走哪一层
+（native / composite / unsupported）。research 默认关闭（tools.research: false）。
+
 
 ## Keyless Tavily
 
-`requiresApiKey: false` → 无 key 也可 `available()` 并 `search()`。keyless 额度耗尽时报清晰
-`WEB_PROVIDER_ERROR`（"Tavily keyless rate limit reached; set TAVILY_API_KEY for full access"）。
+`TavilyAdapter.requiresApiKey = false` → 无 key 也可 `available()` 并 `search()`。
+**keyless 只覆盖 search**：extract/crawl/map/research 会报凭据错误（WEB_PROVIDER_ERROR：
+keyless 上限 / 端点不可用）。在凭据服务（Models 页）配置 TAVILY_API_KEY 即可完整
+使用。ref 按 provider 各自解析，无跨 provider 回退（见 AGENTS.md）。
+
 
 ## 错误分类
 
-`WEB_PROVIDER_CREDENTIAL_MISSING`（需 key 后端无 key）· `WEB_PROVIDER_ERROR`（后端失败/keyless 上限）· `WEB_ABORTED`（取消）。
+- `WEB_PROVIDER_CREDENTIAL_MISSING` — 需 key 后端无可用 key。
+- `WEB_PROVIDER_ERROR` — 后端失败 / keyless 上限。
+- `WEB_ABORTED` — 调用方取消。
+- `WEB_OP_UNSUPPORTED` — 当前适配器既无 native 也无 composite 路径（如 deepseek/demo 上的 research）。
+- `WEB_OP_FAILED` — composite 执行了但无可用产出（如 web_map 找不到 sitemap）。
+
 
 ## 已验证
 
-- 单测/smoke：注册 id 恒为 `deepseek-official`；DeepSeek 映射+请求体、Tavily keyless 映射/去重/
-  maxResults/错误/取消、Demo 可插拔、credential-missing 全部通过。
-- 实机：停用官方后，harness 内置 **`web_search` 工具（未改动）** 通过 Tavily keyless 返回真实结果——无 key、agent 零改动。
+- **48 个 vitest 测试**（`tests/`）：路由阶梯、能力 pinning（tavily 五操作；deepseek/demo
+  仅 search）、composite fixtures（sitemap 解析、HTML 转换、BFS 环路安全、单页失败隔离）、
+  Tavily 全部响应形状映射——全离线（假 fetch / mock SDK，零网络）。
+- 三层冷启动 preflight（composition 试跑 / resolve / client 身份）通过。
+- 实机（人工）：各 provider ref 存储已验证；badge 跟随 provider；真实 Tavily search/extract。
+
 
 ## 开发
 
 ```bash
 npx tsc -p tsconfig.json      # src/ -> lib/（保留分层目录）
-node smoke.mjs                # smoke：身份 + 适配器 + apply 注册
-node test/search.test.mjs     # search 测试（mock 后端）
+npm test                      # vitest（tests/），全离线
+bash scripts/build.sh         # 打包 lib/index.js + lib/invariant.js（esbuild）
 ```
+
+注：`test/search.test.mjs` 是遗留旧 harness，import `lib/core/provider.js`（当前 bundle
+构建不产出该路径）——请用 `tests/`（vitest）替代。
