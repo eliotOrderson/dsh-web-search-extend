@@ -85,7 +85,7 @@ describe("router ladder: native wins", () => {
 	});
 });
 
-describe("router cascade: native failure falls back to the local composite", () => {
+describe("router modes: provider-first vs local-only (extract/crawl/map)", () => {
 	const failingExtract = (): WebAdapter =>
 		baseAdapter({
 			id: "tavily-like",
@@ -104,7 +104,7 @@ describe("router cascade: native failure falls back to the local composite", () 
 			op: "extract",
 			request: { urls: ["https://site.example/doc"] },
 			adapter: failingExtract(),
-			runtime: makeRuntime({ compositeFallback: true }),
+			runtime: makeRuntime({ routeMode: "provider-first" }),
 			fetch: docFetch,
 		})) as ExtractResult & { warnings?: string[] };
 		expect(result.pages[0]?.content).toContain("body text");
@@ -123,16 +123,24 @@ describe("router cascade: native failure falls back to the local composite", () 
 		expect(result.pages[0]?.content).toContain("body text");
 	});
 
-	it("surfaces the native failure untouched when compositeFallback is false", async () => {
-		await expect(
-			execute({
-				op: "extract",
-				request: { urls: ["https://site.example/doc"] },
-				adapter: failingExtract(),
-				runtime: makeRuntime({ compositeFallback: false }),
-				fetch: docFetch,
-			}),
-		).rejects.toMatchObject({ code: "WEB_PROVIDER_ERROR", message: expect.stringContaining("keyless tier") });
+	it("local-only routes straight to the composite without calling the native method", async () => {
+		let nativeCalls = 0;
+		const adapter = baseAdapter({
+			id: "tavily-like",
+			extract: async () => {
+				nativeCalls += 1;
+				return { pages: [{ url: "https://site.example/doc", content: "native" }], truncated: false };
+			},
+		});
+		const result = await execute({
+			op: "extract",
+			request: { urls: ["https://site.example/doc"] },
+			adapter,
+			runtime: makeRuntime({ routeMode: "local-only" }),
+			fetch: docFetch,
+		});
+		expect(result.pages[0]?.content).toContain("body text");
+		expect(nativeCalls).toBe(0);
 	});
 
 	it("never cascades on abort", async () => {
@@ -151,7 +159,7 @@ describe("router cascade: native failure falls back to the local composite", () 
 				op: "extract",
 				request: { urls: ["https://site.example/doc"] },
 				adapter: slow,
-				runtime: makeRuntime(),
+				runtime: makeRuntime({ routeMode: "provider-first" }),
 				fetch: docFetch,
 				signal: controller.signal,
 			});

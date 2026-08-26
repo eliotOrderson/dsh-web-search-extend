@@ -76,7 +76,7 @@ function resolveOptions(ctx: Context, getConfig: () => ConfigType, registry: Ada
 			config.baseURL != null && config.baseURL.length > 0
 				? config.baseURL
 				: launchEnvironmentOf(ctx).get(baseURLEnv)?.value ?? adapter?.defaultBaseURL ?? "";
-		const settings = { ...providerSettings, limits: config.limits, compositeFallback: config.compositeFallback };
+		const settings = { ...providerSettings, limits: config.limits, routeMode: config.routeMode };
 		return {
 			provider,
 			...(literalApiKey === undefined ? {} : { apiKey: literalApiKey }),
