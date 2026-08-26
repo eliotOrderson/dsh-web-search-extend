@@ -92,6 +92,24 @@ same validation as `hooks.validate`, cooldown glance, doctor shortcut.
 Consequences: Design discussion precedes code; stock card keeps working until then.
 READMEs now state the limitation honestly instead of promising UI switching.
 
+## 2026-08-26 — Demo adapter removed; injected selector carries the full provider set
+
+Status: APPROVED (user).
+
+Context: The Demo adapter shipped as an example but had no user value, and the
+DOM-injected provider selector on the stock card still listed only DeepSeek /
+Tavily with a stale pre-D1 fallback ("tavily") — the keyless default never
+showed up in the UI.
+
+Decision: Delete `src/adapters/demo.ts` and its schema subsection/registrations.
+The injected selector now lists firecrawl-keyless (first, marked default),
+tavily, deepseek; its fallback default aligns with `DEFAULT_PROVIDER`.
+
+Consequences: Config files that still carry `provider: demo` resolve to an
+unknown-provider structured failure until re-pointed (acceptable: demo was
+example-only). The selector remains a DOM injection into the stock card; the
+slot-based dedicated card stays a future option (see NEXT in TASK.md).
+
 ## 2026-08-26 — P4 x_search shelved
 
 Status: DEFERRED (user).
