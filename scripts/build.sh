@@ -20,4 +20,7 @@ echo "=== Bundling host → lib/index.js ==="
 echo "=== Bundling invariant → lib/invariant.js ==="
 "$ESBUILD" src/invariant.ts --bundle --format=esm --platform=node --target=node18 --outfile=lib/invariant.js --minify --tree-shaking --log-level=info $EXTERNAL
 
+echo "=== Bundling client UI -> lib/client.js ==="
+"$ESBUILD" src/ui/client.js --bundle --format=iife --platform=browser --target=es2018 --outfile=lib/client.js --minify --log-level=warning
+
 echo "=== Build complete ==="
