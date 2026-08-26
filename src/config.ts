@@ -38,7 +38,7 @@ export const DEEPSEEK_DEFAULT_MAX_USES = 5;
 /**
  * Plugin config. `provider` selects which adapter runs; `apiKey`/`apiKeyEnv`/
  * `baseURL` are cross-cutting overrides; each adapter reads its own subsection
- * (`deepseek`, `tavily`, `demo`) for backend-specific knobs.
+ * (`deepseek`, `tavily`) for backend-specific knobs.
  */
 export const Config = z.object({
 	provider: z.string().default(DEFAULT_PROVIDER),
@@ -79,7 +79,6 @@ export const Config = z.object({
 		researchModel: z.string().default("auto"),
 		apiKeyEnv: z.string().role("credential-ref").default(TAVILY_API_KEY_ENV),
 	}),
-	demo: z.object({}),
 });
 
 /** Parsed config type, derived from the schema (schemastery has no `z.infer`). */

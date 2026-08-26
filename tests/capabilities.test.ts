@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { DeepSeekAdapter } from "../src/adapters/deepseek.js";
-import { DemoAdapter } from "../src/adapters/demo.js";
+import { FirecrawlKeylessAdapter } from "../src/adapters/firecrawl.js";
 import { TavilyAdapter } from "../src/adapters/tavily.js";
 import { capabilitiesOf } from "../src/core/capabilities.js";
 import type { WebAdapter } from "../src/types.js";
@@ -19,13 +19,13 @@ describe("capability pinning", () => {
 		expect(opsOf(DeepSeekAdapter)).toEqual(["search"]);
 	});
 
-	it("demo derives exactly the singleton search set", () => {
-		expect(opsOf(DemoAdapter)).toEqual(["search"]);
+	it("firecrawl-keyless derives exactly the singleton search set", () => {
+		expect(opsOf(FirecrawlKeylessAdapter)).toEqual(["search"]);
 	});
 
 	it("requires BOTH research methods before granting the research capability", () => {
 		const submitOnly = {
-			...DemoAdapter,
+			...FirecrawlKeylessAdapter,
 			submitResearch: async () => ({ requestId: "r-1", status: "pending" as const }),
 		} as WebAdapter;
 		expect(opsOf(submitOnly)).toEqual(["search"]);

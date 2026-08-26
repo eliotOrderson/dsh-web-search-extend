@@ -31,7 +31,6 @@ function makeConfig(over: Partial<ConfigType> = {}): ConfigType {
 		tools: { extract: true, crawl: true, map: true, research: false, doctor: true },
 		firecrawl: {},
 		tavily: {},
-		demo: {},
 		deepseek: {},
 		...over,
 	} as unknown as ConfigType;

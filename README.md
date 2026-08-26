@@ -11,15 +11,15 @@ An **in-place replacement** for the official DeepSeek Harness web-search plugin
   - registered `ctx.web` provider id → `deepseek-official` (seam selection unchanged)
 - the agent **keeps using the old `web_search` tool** — nothing on the agent side changes;
   the tool still calls `ctx.web.search`, which now routes through this plugin into the configured
-  **search provider** (Firecrawl keyless / Tavily / DeepSeek / Demo).
+  **search provider** (Firecrawl keyless / Tavily / DeepSeek).
 - the config page keeps the stock **Web search** card (api_key / baseURL / maxUses);
   the STOCK card's provider dropdown only offers DeepSeek and Tavily — switching to
-  Firecrawl keyless or Demo, and configuring `fallbacks`, is done via the settings
+  Firecrawl keyless, and configuring `fallbacks`, is done via the settings
   file or API (the card form is hardcoded upstream; a dedicated card is planned).
 
 It is layered and modular (contract / config / core / adapter), and the adapter layer is
 **pluggable — not locked to Tavily**: Firecrawl (keyless out of the box), DeepSeek (official
-backend, preserved), Tavily (**keyless-capable**), and a Demo adapter ship out of the box.
+backend, preserved), and Tavily (**keyless-capable**) ship out of the box.
 
 ## Install (official `dsh plugin add`, replace the official)
 
@@ -69,7 +69,6 @@ src/
     deepseek.ts       # DeepSeekAdapter (official Anthropic-compatible API, preserved)
     tavily.ts         # TavilyAdapter (keyless) + response mapping
     firecrawl.ts      # FirecrawlKeylessAdapter (keyless search) + response mapping
-    demo.ts           # DemoAdapter (example, no network)
     index.ts          # createDefaultRegistry() registers all bundled adapters
 ```
 
@@ -108,7 +107,6 @@ provider = one file implementing WebAdapter; the core never changes.
 | `firecrawl-keyless` (**default**) | `FIRECRAWL_API_KEY` (optional; upgrades quota) | search out of the box (~1000 credits/month/IP; HTTP 402 when exhausted) | search |
 | `tavily` | `TAVILY_API_KEY` | search only (rate-limited) | all five (search/extract/crawl/map/research) |
 | `deepseek` | `DEEPSEEK_API_KEY` (required) | none - refuses without a key | search |
-| `demo` | none | everything, offline and canned | search |
 
 Ops an adapter does not serve natively fall through the router ladder to the
 universal composite tier (plain fetch + readability), so extract/crawl/map stay
@@ -118,7 +116,7 @@ usable on every provider.
 
 | Key | Default | Meaning |
 | :--- | :--- | :--- |
-| `provider` | `firecrawl-keyless` | Which adapter serves each search: firecrawl-keyless / tavily / deepseek / demo. |
+| `provider` | `firecrawl-keyless` | Which adapter serves each search: firecrawl-keyless / tavily / deepseek. |
 | `apiKey` | omitted | Literal key (secret role). The stock settings card writes the value into the ref named by `apiKeyEnv`, NOT into the settings file. |
 | `apiKeyEnv` | `FIRECRAWL_API_KEY` | Top-level credential ref: the settings card badge and save target. When it holds a managed ref (`TAVILY_API_KEY` / `DEEPSEEK_API_KEY` / `FIRECRAWL_API_KEY`), `apply()` re-syncs it to the active provider's default on provider change so the badge follows the provider. An arbitrary custom ref is respected untouched. |
 | `baseURL` | per-provider | Endpoint host root; falls back to the adapter env (`DEEPSEEK_SEARCH_BASE_URL` / `TAVILY_BASE_URL` / `FIRECRAWL_BASE_URL`). |
@@ -151,7 +149,7 @@ usable on every provider.
 - id: web-search-deepseek
   name: 'dsh-web-search-extend'
   config:
-    provider: firecrawl-keyless # or: tavily | deepseek | demo
+    provider: firecrawl-keyless # or: tavily | deepseek
     tools:
       research: true            # opt in to the credits-heavy research tools
     limits:
@@ -267,7 +265,7 @@ With `fallbacks` set, the provider wraps `[primary, ...fallbacks]` into one
 - `WEB_PROVIDER_ERROR` - backend failure / keyless limit.
 - `WEB_ABORTED` - caller cancelled.
 - `WEB_OP_UNSUPPORTED` - op has neither native nor composite path on the active adapter
-  (e.g. research on deepseek/demo).
+  (e.g. research on deepseek).
 - `WEB_OP_FAILED` - a composite ran but produced nothing usable (e.g. no sitemap found
   for web_map).
 
@@ -275,7 +273,7 @@ With `fallbacks` set, the provider wraps `[primary, ...fallbacks]` into one
 ## Verified
 
 - **102 vitest tests** (`tests/`): router ladder, capability pinning (tavily: all five
-  ops; deepseek/demo/firecrawl: search-only), composite fixtures (sitemap parse, HTML conversion,
+  ops; deepseek/firecrawl: search-only), composite fixtures (sitemap parse, HTML conversion,
   BFS cycle safety, per-page failure isolation), Tavily mappings for every response
   shape, Firecrawl keyless search (mocked fetch: mapping, auth-header rules, 402/429
   quota/rate-limit errors), ChainAdapter failover (switchable vs non-switchable,

@@ -8,10 +8,10 @@
   - cordis 插件名 → `web-search-deepseek`
   - Settings 配置段 → `web-search-deepseek`（**配置页同位置、同布局，只是扩展**）
   - 注册的 `ctx.web` provider id → `deepseek-official`（接缝选择不变）
-- agent **仍使用旧 `web_search` 工具**——agent 侧零改动；工具仍调 `ctx.web.search`，现在路由到本插件，并按配置的 **search 提供商**（Firecrawl keyless / Tavily / DeepSeek / Demo）执行。
-- 配置页保留官方 **Web search** 卡（api_key / baseURL / maxUses）；官方卡的 provider 下拉只有 DeepSeek 与 Tavily——切换 Firecrawl keyless、Demo 以及配置 `fallbacks` 需通过配置文件或 API（卡片表单在上游硬编码；专属卡已在计划中）。
+- agent **仍使用旧 `web_search` 工具**——agent 侧零改动；工具仍调 `ctx.web.search`，现在路由到本插件，并按配置的 **search 提供商**（Firecrawl keyless / Tavily / DeepSeek）执行。
+- 配置页保留官方 **Web search** 卡（api_key / baseURL / maxUses）；官方卡的 provider 下拉只有 DeepSeek 与 Tavily——切换 Firecrawl keyless 以及配置 `fallbacks` 需通过配置文件或 API（卡片表单在上游硬编码；专属卡已在计划中）。
 
-分层模块化；适配层**可插拔，不锁死 Tavily**：内置 Firecrawl（开箱 keyless）、DeepSeek（官方后端，保留）、Tavily（**支持 keyless**）、Demo。
+分层模块化；适配层**可插拔，不锁死 Tavily**：内置 Firecrawl（开箱 keyless）、DeepSeek（官方后端，保留）、Tavily（**支持 keyless**）。
 
 ## 安装（官方 `dsh plugin add`，替换官方）
 
@@ -58,7 +58,6 @@ src/
     deepseek.ts       # DeepSeekAdapter（官方 Anthropic-compatible API，保留）
     tavily.ts         # TavilyAdapter（keyless）+ 响应映射
     firecrawl.ts      # FirecrawlKeylessAdapter（keyless search）+ 响应映射
-    demo.ts           # DemoAdapter（示例，零网络）
     index.ts          # createDefaultRegistry() 注册全部内置适配器
 ```
 
@@ -96,7 +95,6 @@ WebAdapter 的文件；core 永远不改。
 | `firecrawl-keyless`（**默认**） | `FIRECRAWL_API_KEY`（可选，用于提升配额） | 开箱即搜（约每 IP 每月 1000 credits；耗尽返回 HTTP 402） | search |
 | `tavily` | `TAVILY_API_KEY` | 仅 search（限流） | 全部五个（search/extract/crawl/map/research） |
 | `deepseek` | `DEEPSEEK_API_KEY`（必需） | 无——缺 key 即拒绝 | search |
-| `demo` | 无 | 一切可用（离线、固定输出） | search |
 
 适配器未原生支持的操作会沿路由阶梯落入通用 composite 层（纯 fetch + 可读性
 提取），因此 extract/crawl/map 在任何 provider 上都可用。
@@ -105,7 +103,7 @@ WebAdapter 的文件；core 永远不改。
 
 | 键 | 默认 | 含义 |
 | :--- | :--- | :--- |
-| `provider` | `firecrawl-keyless` | 每次搜索使用哪个适配器：firecrawl-keyless / tavily / deepseek / demo。 |
+| `provider` | `firecrawl-keyless` | 每次搜索使用哪个适配器：firecrawl-keyless / tavily / deepseek。 |
 | `apiKey` | 省略 | 字面 key（secret 角色）。官方设置卡会把值写入 `apiKeyEnv` 指向的 ref，而不是设置文件。 |
 | `apiKeyEnv` | `FIRECRAWL_API_KEY` | 顶层凭据引用：设置卡的 badge 与保存目标。当其值为受管 ref（`TAVILY_API_KEY` / `DEEPSEEK_API_KEY` / `FIRECRAWL_API_KEY`）时，`apply()` 会在 provider 变更时自动同步为当前 provider 的默认 ref，使 badge 跟随 provider；任意自定义 ref 不覆盖。 |
 | `baseURL` | 按 provider | 端点主机根；回退到适配器 env（`DEEPSEEK_SEARCH_BASE_URL` / `TAVILY_BASE_URL` / `FIRECRAWL_BASE_URL`）。 |
@@ -138,7 +136,7 @@ WebAdapter 的文件；core 永远不改。
 - id: web-search-deepseek
   name: 'dsh-web-search-extend'
   config:
-    provider: firecrawl-keyless # 或：tavily | deepseek | demo
+    provider: firecrawl-keyless # 或：tavily | deepseek
     tools:
       research: true            # 打开耗 credits 的 research 工具
     limits:
@@ -238,14 +236,14 @@ keyless 上限 / 端点不可用）。在凭据服务（Models 页）配置 TAVI
 - `WEB_PROVIDER_CREDENTIAL_MISSING` — 需 key 后端无可用 key。
 - `WEB_PROVIDER_ERROR` — 后端失败 / keyless 上限。
 - `WEB_ABORTED` — 调用方取消。
-- `WEB_OP_UNSUPPORTED` — 当前适配器既无 native 也无 composite 路径（如 deepseek/demo 上的 research）。
+- `WEB_OP_UNSUPPORTED` — 当前适配器既无 native 也无 composite 路径（如 deepseek 上的 research）。
 - `WEB_OP_FAILED` — composite 执行了但无可用产出（如 web_map 找不到 sitemap）。
 
 
 ## 已验证
 
 - **102 个 vitest 测试**（`tests/`）：路由阶梯、能力 pinning（tavily 五操作；
-  deepseek/demo/firecrawl 仅 search）、composite fixtures（sitemap 解析、HTML 转换、BFS 环路安全、单页失败隔离）、
+  deepseek/firecrawl 仅 search）、composite fixtures（sitemap 解析、HTML 转换、BFS 环路安全、单页失败隔离）、
   Tavily 全部响应形状映射、Firecrawl keyless 搜索（mock fetch：映射、鉴权头规则、
   402/429 配额/限流错误）、ChainAdapter 故障转移（可切换 vs 不可切换、原生能力跳过、
   D3 校验）、假时钟 cooldown 调度（指数退避、成功重置、全冷却最后手段）、多 key

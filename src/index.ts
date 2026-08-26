@@ -10,7 +10,7 @@
  *
  * The agent keeps calling the OLD `web_search` tool; that tool stays on
  * `ctx.web.search`, which now routes through this plugin's provider into the
- * adapter selected by `config.provider` (firecrawl-keyless / tavily / deepseek / demo).
+ * adapter selected by `config.provider` (firecrawl-keyless / tavily / deepseek).
  * @module dsh-web-search-extend
  */
 import type { Context } from "@deepseek-ai/cordis";
