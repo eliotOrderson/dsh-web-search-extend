@@ -90,9 +90,9 @@ window.__ModuleLoader__.load({
       };
 
       const PROVIDERS = [
-        { value: "firecrawl-keyless", labelKey: "provider_firecrawl_keyless" },
         { value: "tavily", labelKey: "provider_tavily" },
         { value: "deepseek", labelKey: "provider_deepseek" },
+        { value: "firecrawl-keyless", labelKey: "provider_firecrawl_keyless" },
       ];
       const DEFAULT_PROVIDER = "firecrawl-keyless";
       const PROVIDER_MARKER = "data-wse-provider";
