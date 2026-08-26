@@ -1,20 +1,18 @@
 /**
  * Adapter layer — Firecrawl keyless backend. Talks to the hosted Firecrawl v2
- * search endpoint, which serves an unauthenticated keyless tier (free monthly
- * credits capped per IP); a resolved `fc-` key upgrades the quota and is then
- * sent as a Bearer token. Search-only by design: the keyless REST surface also
- * exposes /scrape, but routing extract through it would burn the same shared
- * monthly credits — single-page fetch stays on the composite tier (zero
- * quota), so it keeps working even after search credits run out.
+ * search endpoint through the official `firecrawl` SDK, which serves an
+ * unauthenticated keyless tier (free monthly credits capped per IP); a resolved
+ * `fc-` key upgrades the quota and is then sent as a Bearer token by the SDK.
+ * Search-only by design: the keyless REST surface also exposes /scrape, but
+ * routing extract through it would burn the same shared monthly credits —
+ * single-page fetch stays on the composite tier (zero quota), so it keeps
+ * working even after search credits run out.
  * @module dsh-web-search-extend/adapters/firecrawl
  */
+import { Firecrawl, SdkError, type Document, type SearchData, type SearchResultWeb } from "firecrawl";
 import { WebError, type WebSearchResult, type WebSearchSource } from "@deepseek-ai/dsh-web";
 import type { AdapterRuntime, SearchAdapter } from "../types.js";
-import { isAbortError } from "../core/abort.js";
 import { FIRECRAWL_API_KEY_ENV, FIRECRAWL_BASE_URL_ENV, FIRECRAWL_DEFAULT_BASE_URL } from "../config.js";
-
-/** Attribution sent on every request. */
-const USER_AGENT = "deepseek-harness";
 
 /** Result cap when the request carries none (matches the tavily default). */
 const DEFAULT_MAX_RESULTS = 5;
@@ -23,53 +21,48 @@ const DEFAULT_MAX_RESULTS = 5;
 const KEY_SHAPE = /^fc-/;
 
 /** One web hit in the Firecrawl v2 search response. */
-interface FirecrawlSearchHit {
-	url?: string;
-	title?: string;
-	description?: string;
-}
+type FirecrawlSearchHit = SearchResultWeb | Document;
 
-/** Firecrawl v2 search response envelope (`data.web` for the default source set). */
-interface FirecrawlSearchResponse {
-	success?: boolean;
-	error?: string;
-	data?: { web?: FirecrawlSearchHit[] };
+/** True for the plain search-result shape; false means a scraped Document. */
+function isSearchResultWeb(item: FirecrawlSearchHit): item is SearchResultWeb {
+	return "url" in item;
 }
 
 /** Map a v2 search response to the seam's normalized result (deduped by URL). */
-function mapFirecrawlResponse(response: FirecrawlSearchResponse): WebSearchResult {
+function mapFirecrawlResponse(response: SearchData): WebSearchResult {
 	const seen = new Set<string>();
 	const sources: WebSearchSource[] = [];
-	for (const hit of response.data?.web ?? []) {
-		if (hit.url == null || hit.url.length === 0 || seen.has(hit.url)) continue;
-		seen.add(hit.url);
+	for (const item of response.web ?? []) {
+		const url = isSearchResultWeb(item) ? item.url : item.metadata?.sourceURL ?? item.metadata?.url;
+		if (url == null || url.length === 0 || seen.has(url)) continue;
+		seen.add(url);
+		const title = isSearchResultWeb(item) ? item.title : item.metadata?.title ?? item.metadata?.ogTitle;
+		const description = isSearchResultWeb(item) ? item.description : item.metadata?.description ?? item.metadata?.ogDescription;
 		sources.push({
-			url: hit.url,
-			...(hit.title != null && hit.title.length > 0 ? { title: hit.title } : {}),
-			...(hit.description != null && hit.description.length > 0 ? { snippet: hit.description } : {}),
+			url,
+			...(title != null && title.length > 0 ? { title } : {}),
+			...(description != null && description.length > 0 ? { snippet: description } : {}),
 		});
 	}
 	return { sources, truncated: false };
 }
 
-/** Prefer the server's error text; fall back to a status line for non-JSON bodies. */
-async function errorDetail(response: Response): Promise<string> {
-	try {
-		const parsed = await response.json();
-		if (typeof parsed?.error === "string" && parsed.error.length > 0) return parsed.error;
-	} catch {
-		/* non-JSON error body */
+/** Map SDK errors to seam errors; 402/429 keep their actionable messages. */
+function normalizeFirecrawlError(error: unknown, runtime: AdapterRuntime): unknown {
+	if (error instanceof SdkError) {
+		if (error.status === 402) {
+			return new WebError(
+				`Firecrawl keyless monthly credit quota exhausted: ${error.message}. Set ${runtime.apiKeyEnv ?? FIRECRAWL_API_KEY_ENV} or wait for the monthly reset.`,
+				"WEB_PROVIDER_ERROR",
+				{ cause: error },
+			);
+		}
+		if (error.status === 429) {
+			return new WebError(`Firecrawl rate limit exceeded: ${error.message}`, "WEB_PROVIDER_ERROR", { cause: error });
+		}
+		return new WebError(`Firecrawl API error: ${error.message} (HTTP ${error.status ?? "unknown"})`, "WEB_PROVIDER_ERROR", { cause: error });
 	}
-	return `Firecrawl API error (HTTP ${response.status})`;
-}
-
-/** Quota/rate-limit statuses get actionable messages; everything else passes through. */
-function httpErrorMessage(status: number, detail: string): string {
-	if (status === 402) {
-		return `Firecrawl keyless monthly credit quota exhausted: ${detail}. Set ${FIRECRAWL_API_KEY_ENV} or wait for the monthly reset.`;
-	}
-	if (status === 429) return `Firecrawl rate limit exceeded: ${detail}`;
-	return `${detail} (HTTP ${status})`;
+	return new WebError(`Firecrawl search request failed: ${String(error)}`, "WEB_PROVIDER_ERROR", { cause: error });
 }
 
 export const FirecrawlKeylessAdapter: SearchAdapter = {
@@ -88,42 +81,14 @@ export const FirecrawlKeylessAdapter: SearchAdapter = {
 		return key === undefined || key.length === 0 || KEY_SHAPE.test(key);
 	},
 	async search(request: Parameters<SearchAdapter["search"]>[0], runtime: AdapterRuntime, signal?: AbortSignal): Promise<WebSearchResult> {
-		const endpoint = `${runtime.baseURL}/v2/search`;
-		const body = { query: request.query, limit: request.maxResults ?? DEFAULT_MAX_RESULTS };
-		runtime.recordRequest?.({ endpoint, params: body });
+		const limit = request.maxResults ?? DEFAULT_MAX_RESULTS;
+		runtime.recordRequest?.({ endpoint: `${runtime.baseURL}/v2/search`, params: { query: request.query, limit } });
 		if (signal?.aborted === true) throw new WebError("Search aborted", "WEB_ABORTED", { cause: signal.reason });
-		const headers: Record<string, string> = {
-			"content-type": "application/json",
-			accept: "application/json",
-			"user-agent": USER_AGENT,
-		};
-		// Keyless requests carry NO Authorization header; only a resolved key adds one.
-		if (runtime.apiKey != null && runtime.apiKey.length > 0) headers.authorization = `Bearer ${runtime.apiKey}`;
-		let response: Response;
+		const client = new Firecrawl({ apiKey: runtime.apiKey ?? undefined, apiUrl: runtime.baseURL });
 		try {
-			response = await fetch(endpoint, {
-				method: "POST",
-				redirect: "error",
-				headers,
-				body: JSON.stringify(body),
-				...signal !== undefined ? { signal } : {},
-			});
+			return mapFirecrawlResponse(await client.search(request.query, { limit }));
 		} catch (error) {
-			if (isAbortError(error)) {
-				throw new WebError("Search aborted", "WEB_ABORTED", { cause: error });
-			}
-			throw new WebError(`Firecrawl search request failed: ${String(error)}`, "WEB_PROVIDER_ERROR", { cause: error });
-		}
-		if (!response.ok) {
-			throw new WebError(httpErrorMessage(response.status, await errorDetail(response)), "WEB_PROVIDER_ERROR");
-		}
-		try {
-			const parsed = (await response.json()) as FirecrawlSearchResponse;
-			if (parsed.success === false) throw new Error(parsed.error ?? "Firecrawl reported failure without an error message");
-			return mapFirecrawlResponse(parsed);
-		} catch (error) {
-			if (error instanceof WebError) throw error;
-			throw new WebError(`Firecrawl returned an unprocessable response body: ${String(error)}`, "WEB_PROVIDER_ERROR", { cause: error });
+			throw normalizeFirecrawlError(error, runtime);
 		}
 	},
 };

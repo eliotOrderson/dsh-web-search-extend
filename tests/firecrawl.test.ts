@@ -4,21 +4,56 @@ import { FirecrawlKeylessAdapter } from "../src/adapters/firecrawl.js";
 import { createDefaultRegistry } from "../src/adapters/index.js";
 import { capabilitiesOf } from "../src/core/capabilities.js";
 
-// The adapter owns the v2 search call and the response -> seam-type mapping;
-// global fetch is stubbed so these tests pin both with zero network.
-const fetchMock = vi.hoisted(() => vi.fn());
+const mocks = vi.hoisted(() => {
+	class SdkErrorMock extends Error {
+		status?: number;
+		code?: string;
 
-beforeEach(() => {
-	vi.stubGlobal("fetch", fetchMock);
+		constructor(message: string, status?: number, code?: string) {
+			super(message);
+			this.status = status;
+			this.code = code;
+		}
+	}
+
+	class FirecrawlMock {
+		constructorArgs: unknown[];
+
+		constructor(...args: unknown[]) {
+			this.constructorArgs = args;
+			(FirecrawlMock as any).instances.push(this);
+		}
+
+		search(...args: unknown[]) {
+			return (FirecrawlMock as any).searchMock(...args);
+		}
+	}
+
+	(FirecrawlMock as any).instances = [];
+	(FirecrawlMock as any).searchMock = vi.fn();
+
+	return { FirecrawlMock, SdkErrorMock };
 });
 
-afterEach(() => {
-	vi.unstubAllGlobals();
+vi.mock("firecrawl", () => ({
+	Firecrawl: mocks.FirecrawlMock,
+	SdkError: mocks.SdkErrorMock,
+}));
+
+const client = () => (mocks.FirecrawlMock as any).instances[0] as {
+	constructorArgs: unknown[];
+};
+
+const searchMock = () => (mocks.FirecrawlMock as any).searchMock as ReturnType<typeof vi.fn>;
+
+beforeEach(() => {
+	(mocks.FirecrawlMock as any).instances.length = 0;
 	vi.clearAllMocks();
 });
 
-const jsonResponse = (status: number, body: unknown): Response =>
-	new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
+afterEach(() => {
+	vi.clearAllMocks();
+});
 
 const runtime = { apiKeyEnv: "FIRECRAWL_API_KEY", baseURL: "https://api.firecrawl.test", settings: {} };
 
@@ -44,19 +79,14 @@ describe("available()", () => {
 });
 
 describe("search mapping", () => {
-	it("posts to /v2/search without an Authorization header and maps data.web into deduped sources", async () => {
-		fetchMock.mockResolvedValue(
-			jsonResponse(200, {
-				success: true,
-				data: {
-					web: [
-						{ title: "One", url: "https://a.example/1", description: "first snippet" },
-						{ title: "Dup", url: "https://a.example/1", description: "duplicate url" },
-						{ url: "https://b.example/2", description: "" },
-					],
-				},
-			}),
-		);
+	it("maps data.web into deduped sources and passes keyless config to the SDK", async () => {
+		searchMock().mockResolvedValue({
+			web: [
+				{ title: "One", url: "https://a.example/1", description: "first snippet" },
+				{ title: "Dup", url: "https://a.example/1", description: "duplicate url" },
+				{ url: "https://b.example/2", description: "" },
+			],
+		});
 		const result = await FirecrawlKeylessAdapter.search({ query: "q", maxResults: 3 }, runtime);
 		expect(result).toEqual({
 			sources: [
@@ -65,31 +95,26 @@ describe("search mapping", () => {
 			],
 			truncated: false,
 		});
-		const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit & { headers: Record<string, string>; body: string }];
-		expect(url).toBe("https://api.firecrawl.test/v2/search");
-		expect(init.method).toBe("POST");
-		expect(init.headers["authorization"]).toBeUndefined();
-		expect(JSON.parse(init.body)).toEqual({ query: "q", limit: 3 });
+		expect(client().constructorArgs[0]).toEqual({ apiKey: undefined, apiUrl: "https://api.firecrawl.test" });
+		expect(searchMock()).toHaveBeenCalledWith("q", { limit: 3 });
 	});
 
-	it("sends the resolved key as a Bearer token when one is configured (quota upgrade)", async () => {
-		fetchMock.mockResolvedValue(jsonResponse(200, { success: true, data: { web: [] } }));
+	it("passes the resolved key to the SDK when one is configured (quota upgrade)", async () => {
+		searchMock().mockResolvedValue({ web: [] });
 		await FirecrawlKeylessAdapter.search({ query: "q" }, { ...runtime, apiKey: "fc-key-1" });
-		const [, init] = fetchMock.mock.calls[0] as [string, { headers: Record<string, string> }];
-		expect(init.headers.authorization).toBe("Bearer fc-key-1");
+		expect(client().constructorArgs[0]).toEqual({ apiKey: "fc-key-1", apiUrl: "https://api.firecrawl.test" });
 	});
 
 	it("falls back to the default result cap when the request has no maxResults", async () => {
-		fetchMock.mockResolvedValue(jsonResponse(200, { success: true, data: { web: [] } }));
+		searchMock().mockResolvedValue({ web: [] });
 		await FirecrawlKeylessAdapter.search({ query: "q" }, runtime);
-		const [, init] = fetchMock.mock.calls[0] as [string, { body: string }];
-		expect(JSON.parse(init.body).limit).toBe(5);
+		expect(searchMock()).toHaveBeenCalledWith("q", { limit: 5 });
 	});
 });
 
 describe("error normalization", () => {
 	it("maps HTTP 402 to WEB_PROVIDER_ERROR naming the monthly quota and the credential ref", async () => {
-		fetchMock.mockResolvedValue(jsonResponse(402, { success: false, error: "Payment required" }));
+		searchMock().mockRejectedValue(new mocks.SdkErrorMock("Payment required", 402));
 		await expect(FirecrawlKeylessAdapter.search({ query: "q" }, runtime)).rejects.toMatchObject({
 			code: "WEB_PROVIDER_ERROR",
 			message: expect.stringContaining("FIRECRAWL_API_KEY"),
@@ -98,23 +123,23 @@ describe("error normalization", () => {
 	});
 
 	it("maps HTTP 429 to WEB_PROVIDER_ERROR as a rate-limit failure", async () => {
-		fetchMock.mockResolvedValue(jsonResponse(429, { success: false, error: "Rate limit surpassed" }));
+		searchMock().mockRejectedValue(new mocks.SdkErrorMock("Rate limit surpassed", 429));
 		await expect(FirecrawlKeylessAdapter.search({ query: "q" }, runtime)).rejects.toMatchObject({
 			code: "WEB_PROVIDER_ERROR",
 			message: expect.stringContaining("rate limit"),
 		});
 	});
 
-	it("surfaces a 200 envelope with success:false as a provider error carrying the server text", async () => {
-		fetchMock.mockResolvedValue(jsonResponse(200, { success: false, error: "Request timed out" }));
+	it("surfaces an SDK error without a recognized status as a provider error carrying the server text", async () => {
+		searchMock().mockRejectedValue(new mocks.SdkErrorMock("Request timed out", 200));
 		await expect(FirecrawlKeylessAdapter.search({ query: "q" }, runtime)).rejects.toMatchObject({
 			code: "WEB_PROVIDER_ERROR",
 			message: expect.stringContaining("Request timed out"),
 		});
 	});
 
-	it("wraps a transport failure (fetch rejection) as WEB_PROVIDER_ERROR", async () => {
-		fetchMock.mockRejectedValue(new Error("socket hung up"));
+	it("wraps a transport failure as WEB_PROVIDER_ERROR", async () => {
+		searchMock().mockRejectedValue(new Error("socket hung up"));
 		await expect(FirecrawlKeylessAdapter.search({ query: "q" }, runtime)).rejects.toMatchObject({
 			code: "WEB_PROVIDER_ERROR",
 		});
@@ -126,6 +151,6 @@ describe("error normalization", () => {
 		await expect(FirecrawlKeylessAdapter.search({ query: "q" }, runtime, controller.signal)).rejects.toMatchObject({
 			code: "WEB_ABORTED",
 		});
-		expect(fetchMock).not.toHaveBeenCalled();
+		expect(searchMock()).not.toHaveBeenCalled();
 	});
 });
