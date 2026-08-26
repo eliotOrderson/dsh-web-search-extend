@@ -20,6 +20,10 @@ const I18N = {
 		bool_on: "开",
 		bool_off: "关",
 		keylessNote: "Firecrawl keyless 无额外参数；各参数仅对当前所选提供方生效。",
+		compositeFallbackLabel: "提供商失败时回退本地实现",
+		compositeFallbackHint: "开启：当前提供方的 extract / crawl / map 原生调用失败时，自动改用本地零配额实现；关闭则直接报错。搜索不受影响（无本地形态）。",
+		badge_firecrawl_keyless: "免注册即可搜索；配置 fc- 密钥仅用于提升配额。",
+		badge_tavily: "免密钥即可搜索；配置密钥后解锁 extract / crawl / map / research。",
 		"tavily.searchDepth.label": "搜索深度",
 		"tavily.searchDepth.hint": "basic 快而省（1 credit）；advanced 深挖更多来源并重排（约 2 credits）；fast / ultra-fast 为低延迟档。",
 		"tavily.topic.label": "话题类别",
@@ -48,6 +52,10 @@ const I18N = {
 		bool_on: "On",
 		bool_off: "Off",
 		keylessNote: "Firecrawl keyless has no extra parameters; fields below apply to the selected provider.",
+		compositeFallbackLabel: "Fall back to local implementation on provider failure",
+		compositeFallbackHint: "When on, a failed native extract/crawl/map call retries through the zero-quota local implementation; when off, the failure surfaces as-is. Search is unaffected (no local form exists).",
+		badge_firecrawl_keyless: "Search works without a key; an fc- key only raises the quota.",
+		badge_tavily: "Keyless search works; a configured key unlocks extract / crawl / map / research.",
 		"tavily.searchDepth.label": "Search depth",
 		"tavily.searchDepth.hint": "basic is fast and cheap (1 credit); advanced digs deeper and re-ranks (~2 credits); fast / ultra-fast are low-latency tiers.",
 		"tavily.topic.label": "Topic",
@@ -182,6 +190,54 @@ window.__ModuleLoader__.load({
         hint.className = "At1oFq_hint";
         hint.textContent = text;
         field.appendChild(hint);
+      };
+
+      const buildCompositeFallbackToggle = (t) => {
+        const field = buildFieldShell(t("compositeFallbackLabel"));
+        field.setAttribute("data-wse-fallback", "");
+        const wrap = document.createElement("div");
+        wrap.style.cssText = "display:flex;align-items:center;gap:8px;";
+        const box = document.createElement("input");
+        box.type = "checkbox";
+        const current = () => {
+          try {
+            const snap = scope.getSnapshot();
+            return snap?.value?.compositeFallback ?? snap?.base?.compositeFallback ?? true;
+          } catch { return true; }
+        };
+        box.checked = Boolean(current());
+        const state = document.createElement("span");
+        state.textContent = box.checked ? t("bool_on") : t("bool_off");
+        state.style.cssText = "font-size:12px;color:var(--dsw-alias-label-secondary);";
+        box.addEventListener("change", () => {
+          state.textContent = box.checked ? t("bool_on") : t("bool_off");
+          try {
+            scope.set("compositeFallback", box.checked);
+          } catch (e) {
+            console.warn("[@mr.robot/dsh-web-search-extend] failed to persist compositeFallback", e);
+          }
+        });
+        wrap.appendChild(box);
+        wrap.appendChild(state);
+        field.appendChild(wrap);
+        buildHint(field, t("compositeFallbackHint"));
+        return field;
+      };
+
+      // The stock card's key badge claims search is unusable without a key -
+      // false for firecrawl/tavily. Rewrite it per selected provider, keeping
+      // the original text for deepseek (where the claim holds).
+      const syncBadge = () => {
+        const body = findBody();
+        if (!body) return;
+        const badge = body.querySelector(".At1oFq_badges .At1oFq_badgeMuted");
+        if (!badge) return;
+        if (badge.dataset.wseOriginal === undefined) badge.dataset.wseOriginal = badge.textContent ?? "";
+        const lang = readLang();
+        const tt = (k) => I18N[lang]?.[k] ?? I18N.zh[k] ?? k;
+        const provider = currentProvider();
+        const key = provider === "firecrawl-keyless" ? "badge_firecrawl_keyless" : provider === "tavily" ? "badge_tavily" : null;
+        badge.textContent = key === null ? (badge.dataset.wseOriginal || "") : tt(key);
       };
 
       const buildProviderSelect = (t) => {
@@ -326,8 +382,13 @@ window.__ModuleLoader__.load({
 
         const t = (k) => I18N[readLang()]?.[k] ?? I18N.zh[k] ?? k;
 
+        // Insert provider first, THEN the toggle - each lands at firstChild,
+        // so final order is [fallback toggle, provider select, ...params].
         if (!body.querySelector(`[${PROVIDER_MARKER}]`)) {
           body.insertBefore(buildProviderSelect(t), body.firstChild);
+        }
+        if (!body.querySelector(`[data-wse-fallback]`)) {
+          body.insertBefore(buildCompositeFallbackToggle(t), body.firstChild);
         }
         let container = body.querySelector(`[${PARAMS_MARKER}]`);
         if (!container) {
@@ -344,6 +405,7 @@ window.__ModuleLoader__.load({
 
         syncParams();
         refreshParamValues();
+        syncBadge();
       };
 
       inject();
