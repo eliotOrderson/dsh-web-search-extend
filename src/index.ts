@@ -10,7 +10,7 @@
  *
  * The agent keeps calling the OLD `web_search` tool; that tool stays on
  * `ctx.web.search`, which now routes through this plugin's provider into the
- * adapter selected by `config.provider` (deepseek / tavily / demo).
+ * adapter selected by `config.provider` (firecrawl-keyless / tavily / deepseek / demo).
  * @module dsh-web-search-extend
  */
 import type { Context } from "@deepseek-ai/cordis";
@@ -18,11 +18,14 @@ import { credentialRef } from "@deepseek-ai/dsh-credentials";
 import { installSettingsSection, settingsNamespace } from "@deepseek-ai/dsh-settings";
 import { launchEnvironmentOf } from "@deepseek-ai/dsh-launch-environment";
 import { WebError, type WebFetchProvider } from "@deepseek-ai/dsh-web";
-import { Config, TAVILY_API_KEY_ENV, DEEPSEEK_API_KEY_ENV, type ConfigType } from "./config.js";
+import { Config, TAVILY_API_KEY_ENV, DEEPSEEK_API_KEY_ENV, FIRECRAWL_API_KEY_ENV, type ConfigType } from "./config.js";
 import { capabilitiesOf } from "./core/capabilities.js";
 import { ExtensibleWebSearchProvider, resolveExecution, type ResolvedOptions } from "./core/provider.js";
 import { execute } from "./core/router.js";
 import { AdapterRegistry } from "./core/registry.js";
+import { chainOf, resolveChain } from "./core/chain.js";
+import { CooldownBoard } from "./core/cooldown.js";
+import { rotatingKey } from "./core/rotating-key.js";
 import { createDefaultRegistry } from "./adapters/index.js";
 import { applyWebTools } from "./tools/index.js";
 
@@ -46,11 +49,20 @@ const WEB_SEARCH_SETTINGS_NAMESPACE = settingsNamespace("web-search-deepseek");
  * @param registry - the adapter registry to look the selected backend up in.
  * @returns options for one search.
  */
-function resolveOptions(ctx: Context, getConfig: () => ConfigType, registry: AdapterRegistry): () => ResolvedOptions {
+function resolveOptions(ctx: Context, getConfig: () => ConfigType, registry: AdapterRegistry, cooldowns: CooldownBoard): () => ResolvedOptions {
 	return () => {
 		const config = getConfig();
 		const provider = config.provider ?? "tavily";
-		const adapter = registry.get(provider);
+		// D3 failover: with a non-empty fallbacks array the provider sees one
+		// ChainAdapter wrapping [primary, ...fallbacks]; otherwise the bare
+		// primary, so single-provider configs keep today's shape.
+		const { members } = resolveChain(registry, provider, config.fallbacks ?? []);
+		// Key rotation wraps ONLY the primary: the resolved key value belongs to
+		// one provider's own ref, and fallback members inherit the shared
+		// runtime, so rotating their calls through it would borrow keys across
+		// providers (AGENTS.md incident rule).
+		const wired = members.map((member, index) => (index === 0 ? rotatingKey(member) : member));
+		const adapter = chainOf(wired, { cooldowns }) ?? wired[0];
 		// Key ref resolution: the top-level apiKeyEnv is what the stock settings UI
 		// writes against (official-compatible); a provider subsection may override
 		// it for per-provider splits. No cross-provider fallback beyond that.
@@ -145,14 +157,26 @@ function makeFetchProvider(ctx: Context, resolveOpts: () => ResolvedOptions): We
 const PROVIDER_DEFAULT_API_KEY_ENVS: Record<string, string> = {
 	tavily: TAVILY_API_KEY_ENV,
 	deepseek: DEEPSEEK_API_KEY_ENV,
+	"firecrawl-keyless": FIRECRAWL_API_KEY_ENV,
 };
 
 function apply(ctx: Context, config: ConfigType): void {
 	const registry = createDefaultRegistry();
+	// D2: cooldown state lives in memory for the plugin's lifetime; a restart
+	// clears it and the engine is simply probed again.
+	const cooldowns = new CooldownBoard();
 	let current = () => config;
 	installSettingsSection(ctx, WEB_SEARCH_SETTINGS_NAMESPACE, Config, config, {
 		setSource: (source) => {
 			current = source;
+		},
+		// Cross-field fallbacks validation (D3): the schema cannot know registry
+		// membership, so unknown ids / duplicates / self-reference reject the
+		// write here — the settings surface reports it instead of silently
+		// storing a chain that would never serve.
+		validate: (value) => {
+			const { problems } = resolveChain(registry, value.provider, value.fallbacks ?? []);
+			if (problems.length > 0) throw new Error(problems.join("; "));
 		},
 		// Keep the top-level apiKeyEnv aligned with the selected provider so the
 		// stock settings card's "key configured" badge follows the provider, not a
@@ -170,9 +194,9 @@ function apply(ctx: Context, config: ConfigType): void {
 			void ctx.settings?.update(WEB_SEARCH_SETTINGS_NAMESPACE, { apiKeyEnv: target }).catch(() => {});
 		},
 	});
-	const resolveOpts = resolveOptions(ctx, current, registry);
+	const resolveOpts = resolveOptions(ctx, current, registry, cooldowns);
 	ctx.web.registerSearchProvider(new ExtensibleWebSearchProvider(resolveOpts));
-	applyWebTools(ctx, resolveOpts, current().tools);
+	applyWebTools(ctx, resolveOpts, current().tools, { registry, config: current, cooldowns });
 	if (current().fetchBackend === "adapter") {
 		ctx.web.registerFetchProvider(makeFetchProvider(ctx, resolveOpts));
 	}

@@ -11,10 +11,15 @@
  */
 import z from "@deepseek-ai/schemastery";
 
+/** Firecrawl defaults + env names. */
+export const FIRECRAWL_API_KEY_ENV = "FIRECRAWL_API_KEY";
+export const FIRECRAWL_BASE_URL_ENV = "FIRECRAWL_BASE_URL";
+export const FIRECRAWL_DEFAULT_BASE_URL = "https://api.firecrawl.dev";
+
 /** Default backend selected when config omits `provider` (keyless, testable). */
-export const DEFAULT_PROVIDER = "tavily";
+export const DEFAULT_PROVIDER = "firecrawl-keyless";
 /** Fallback credential-reference name when no adapter supplies one. */
-export const DEFAULT_API_KEY_ENV = "TAVILY_API_KEY";
+export const DEFAULT_API_KEY_ENV = FIRECRAWL_API_KEY_ENV;
 
 /** Tavily defaults + env names. */
 export const TAVILY_API_KEY_ENV = "TAVILY_API_KEY";
@@ -38,15 +43,18 @@ export const DEEPSEEK_DEFAULT_MAX_USES = 5;
 export const Config = z.object({
 	provider: z.string().default(DEFAULT_PROVIDER),
 	apiKey: z.string().role("secret"),
-	apiKeyEnv: z.string().role("credential-ref").default(TAVILY_API_KEY_ENV),
+	apiKeyEnv: z.string().role("credential-ref").default(FIRECRAWL_API_KEY_ENV),
 	baseURL: z.string(),
 	/** Fetch takeover (design s9): "local" registers nothing new; "adapter" also exposes extract as a fetch provider. */
 	fetchBackend: z.string().default("local"),
+	/** Failover chain (D3): ordered adapter ids tried after the primary on switchable failures. */
+	fallbacks: z.array(z.string()).default([]),
 	tools: z.object({
 		extract: z.boolean().default(true),
 		crawl: z.boolean().default(true),
 		map: z.boolean().default(true),
 		research: z.boolean().default(false),
+		doctor: z.boolean().default(true),
 	}),
 	limits: z.object({
 		extractMaxUrls: z.number().step(1).min(1).default(10),

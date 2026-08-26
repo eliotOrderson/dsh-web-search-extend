@@ -7,13 +7,15 @@
 import { AdapterRegistry } from "../core/registry.js";
 import { DeepSeekAdapter } from "./deepseek.js";
 import { DemoAdapter } from "./demo.js";
+import { FirecrawlKeylessAdapter } from "./firecrawl.js";
 import { TavilyAdapter } from "./tavily.js";
 
-/** A registry pre-loaded with the bundled adapters (DeepSeek + Tavily + Demo). */
+/** A registry pre-loaded with the bundled adapters (DeepSeek + Tavily + Firecrawl + Demo). */
 export function createDefaultRegistry(): AdapterRegistry {
 	const registry = new AdapterRegistry();
 	registry.register(DeepSeekAdapter);
 	registry.register(TavilyAdapter);
+	registry.register(FirecrawlKeylessAdapter);
 	registry.register(DemoAdapter);
 	return registry;
 }
