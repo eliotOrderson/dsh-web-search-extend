@@ -20,8 +20,9 @@ const I18N = {
 		bool_on: "开",
 		bool_off: "关",
 		keylessNote: "Firecrawl keyless 无额外参数；各参数仅对当前所选提供方生效。",
-		compositeFallbackLabel: "提供商失败时回退本地实现",
-		compositeFallbackHint: "开启：当前提供方的 extract / crawl / map 原生调用失败时，自动改用本地零配额实现；关闭则直接报错。搜索不受影响（无本地形态）。",
+		routeModeLabel: "路由模式（抽取 / 抓取 / 枚举）",
+		route_provider_first: "优先提供商，失败就本地",
+		route_local_only: "仅本地",
 		badge_firecrawl_keyless: "免注册即可搜索；配置 fc- 密钥仅用于提升配额。",
 		badge_tavily: "免密钥即可搜索；配置密钥后解锁 extract / crawl / map / research。",
 		"tavily.searchDepth.label": "搜索深度",
@@ -52,8 +53,9 @@ const I18N = {
 		bool_on: "On",
 		bool_off: "Off",
 		keylessNote: "Firecrawl keyless has no extra parameters; fields below apply to the selected provider.",
-		compositeFallbackLabel: "Fall back to local implementation on provider failure",
-		compositeFallbackHint: "When on, a failed native extract/crawl/map call retries through the zero-quota local implementation; when off, the failure surfaces as-is. Search is unaffected (no local form exists).",
+		routeModeLabel: "Routing mode (extract / crawl / map)",
+		route_provider_first: "Provider first, fall back to local",
+		route_local_only: "Local only",
 		badge_firecrawl_keyless: "Search works without a key; an fc- key only raises the quota.",
 		badge_tavily: "Keyless search works; a configured key unlocks extract / crawl / map / research.",
 		"tavily.searchDepth.label": "Search depth",
@@ -103,6 +105,8 @@ window.__ModuleLoader__.load({
         { value: "firecrawl-keyless", labelKey: "provider_firecrawl_keyless" },
       ];
       const DEFAULT_PROVIDER = "firecrawl-keyless";
+      const ROUTE_PROVIDER_FIRST = "provider-first";
+      const ROUTE_LOCAL_ONLY = "local-only";
       const PROVIDER_MARKER = "data-wse-provider";
       const PARAMS_MARKER = "data-wse-params";
 
@@ -192,35 +196,37 @@ window.__ModuleLoader__.load({
         field.appendChild(hint);
       };
 
-      const buildCompositeFallbackToggle = (t) => {
-        const field = buildFieldShell(t("compositeFallbackLabel"));
-        field.setAttribute("data-wse-fallback", "");
-        const wrap = document.createElement("div");
-        wrap.style.cssText = "display:flex;align-items:center;gap:8px;";
-        const box = document.createElement("input");
-        box.type = "checkbox";
+      const ROUTE_OPTIONS = [
+        { value: ROUTE_PROVIDER_FIRST, labelKey: "route_provider_first" },
+        { value: ROUTE_LOCAL_ONLY, labelKey: "route_local_only" },
+      ];
+
+      const buildRouteModeSelect = (t) => {
+        const field = buildFieldShell(t("routeModeLabel"));
+        field.setAttribute("data-wse-route", "");
+        const select = document.createElement("select");
+        select.className = "At1oFq_input";
+        for (const o of ROUTE_OPTIONS) {
+          const opt = document.createElement("option");
+          opt.value = o.value;
+          opt.textContent = t(o.labelKey);
+          select.appendChild(opt);
+        }
         const current = () => {
           try {
             const snap = scope.getSnapshot();
-            return snap?.value?.compositeFallback ?? snap?.base?.compositeFallback ?? true;
-          } catch { return true; }
+            return snap?.value?.routeMode ?? snap?.base?.routeMode ?? ROUTE_PROVIDER_FIRST;
+          } catch { return PROVIDER_FIRST; }
         };
-        box.checked = Boolean(current());
-        const state = document.createElement("span");
-        state.textContent = box.checked ? t("bool_on") : t("bool_off");
-        state.style.cssText = "font-size:12px;color:var(--dsw-alias-label-secondary);";
-        box.addEventListener("change", () => {
-          state.textContent = box.checked ? t("bool_on") : t("bool_off");
+        select.value = current();
+        select.addEventListener("change", () => {
           try {
-            scope.set("compositeFallback", box.checked);
+            scope.set("routeMode", select.value);
           } catch (e) {
-            console.warn("[@mr.robot/dsh-web-search-extend] failed to persist compositeFallback", e);
+            console.warn("[@mr.robot/dsh-web-search-extend] failed to persist routeMode", e);
           }
         });
-        wrap.appendChild(box);
-        wrap.appendChild(state);
-        field.appendChild(wrap);
-        buildHint(field, t("compositeFallbackHint"));
+        field.appendChild(select);
         return field;
       };
 
@@ -387,8 +393,8 @@ window.__ModuleLoader__.load({
         if (!body.querySelector(`[${PROVIDER_MARKER}]`)) {
           body.insertBefore(buildProviderSelect(t), body.firstChild);
         }
-        if (!body.querySelector(`[data-wse-fallback]`)) {
-          body.insertBefore(buildCompositeFallbackToggle(t), body.firstChild);
+        if (!body.querySelector(`[data-wse-route]`)) {
+          body.insertBefore(buildRouteModeSelect(t), body.firstChild);
         }
         let container = body.querySelector(`[${PARAMS_MARKER}]`);
         if (!container) {
