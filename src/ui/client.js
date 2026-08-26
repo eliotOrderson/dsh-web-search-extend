@@ -14,17 +14,12 @@ const I18N = {
 	zh: {
 		providerLabel: "搜索提供方 (Provider)",
 		providerHint: "选择本次搜索使用的后端，接口地址由提供方自动决定。",
-		provider_firecrawl_keyless: "Firecrawl（keyless 免注册，默认）",
-		provider_tavily: "Tavily（免密钥）",
+        provider_tavily: "Tavily（免密钥 Search）",
+		provider_firecrawl_keyless: "Firecrawl（免密钥 Search, default）",
 		provider_deepseek: "DeepSeek（官方后端）",
-		bool_on: "开",
-		bool_off: "关",
-		keylessNote: "Firecrawl keyless 无额外参数；各参数仅对当前所选提供方生效。",
-		routeModeLabel: "路由模式（抽取 / 抓取 / 枚举）",
-		route_provider_first: "优先提供商，失败就本地",
+		routeModeLabel: "路由模式（extract / crawl / map）",
+		route_provider_first: "优先提供商，失败走本地",
 		route_local_only: "仅本地",
-		badge_firecrawl_keyless: "免注册即可搜索；配置 fc- 密钥仅用于提升配额。",
-		badge_tavily: "免密钥即可搜索；配置密钥后解锁 extract / crawl / map / research。",
 		"tavily.searchDepth.label": "搜索深度",
 		"tavily.searchDepth.hint": "basic 快而省（1 credit）；advanced 深挖更多来源并重排（约 2 credits）；fast / ultra-fast 为低延迟档。",
 		"tavily.topic.label": "话题类别",
@@ -47,17 +42,12 @@ const I18N = {
 	en: {
 		providerLabel: "Search provider",
 		providerHint: "Choose the backend serving each search; the endpoint follows automatically.",
-		provider_firecrawl_keyless: "Firecrawl (keyless, default)",
-		provider_tavily: "Tavily (keyless-capable)",
-		provider_deepseek: "DeepSeek (official backend)",
-		bool_on: "On",
-		bool_off: "Off",
-		keylessNote: "Firecrawl keyless has no extra parameters; fields below apply to the selected provider.",
-		routeModeLabel: "Routing mode (extract / crawl / map)",
+        provider_tavily: "Tavily (keyless-search)",
+		provider_firecrawl_keyless: "Firecrawl (keyless-search, default)",
+		provider_deepseek: "DeepSeek",
+		routeModeLabel: "Router mode（extract / crawl / map）",
 		route_provider_first: "Provider first, fall back to local",
 		route_local_only: "Local only",
-		badge_firecrawl_keyless: "Search works without a key; an fc- key only raises the quota.",
-		badge_tavily: "Keyless search works; a configured key unlocks extract / crawl / map / research.",
 		"tavily.searchDepth.label": "Search depth",
 		"tavily.searchDepth.hint": "basic is fast and cheap (1 credit); advanced digs deeper and re-ranks (~2 credits); fast / ultra-fast are low-latency tiers.",
 		"tavily.topic.label": "Topic",
@@ -101,8 +91,8 @@ window.__ModuleLoader__.load({
 
       const PROVIDERS = [
         { value: "tavily", labelKey: "provider_tavily" },
-        { value: "deepseek", labelKey: "provider_deepseek" },
         { value: "firecrawl-keyless", labelKey: "provider_firecrawl_keyless" },
+        { value: "deepseek", labelKey: "provider_deepseek" },
       ];
       const DEFAULT_PROVIDER = "firecrawl-keyless";
       const ROUTE_PROVIDER_FIRST = "provider-first";
@@ -197,8 +187,8 @@ window.__ModuleLoader__.load({
       };
 
       const ROUTE_OPTIONS = [
-        { value: ROUTE_PROVIDER_FIRST, labelKey: "route_provider_first" },
         { value: ROUTE_LOCAL_ONLY, labelKey: "route_local_only" },
+        { value: ROUTE_PROVIDER_FIRST, labelKey: "route_provider_first" },
       ];
 
       const buildRouteModeSelect = (t) => {
@@ -230,20 +220,13 @@ window.__ModuleLoader__.load({
         return field;
       };
 
-      // The stock card's key badge claims search is unusable without a key -
-      // false for firecrawl/tavily. Rewrite it per selected provider, keeping
-      // the original text for deepseek (where the claim holds).
-      const syncBadge = () => {
+      // The official badge claims search is unavailable without a key - false
+      // for firecrawl/tavily. Hide it; no replacement text is rendered.
+      const hideOfficialBadge = () => {
         const body = findBody();
         if (!body) return;
-        const badge = body.querySelector(".At1oFq_badges .At1oFq_badgeMuted");
-        if (!badge) return;
-        if (badge.dataset.wseOriginal === undefined) badge.dataset.wseOriginal = badge.textContent ?? "";
-        const lang = readLang();
-        const tt = (k) => I18N[lang]?.[k] ?? I18N.zh[k] ?? k;
-        const provider = currentProvider();
-        const key = provider === "firecrawl-keyless" ? "badge_firecrawl_keyless" : provider === "tavily" ? "badge_tavily" : null;
-        badge.textContent = key === null ? (badge.dataset.wseOriginal || "") : tt(key);
+        const badges = body.querySelector(".At1oFq_badges");
+        if (badges) badges.style.display = "none";
       };
 
       const buildProviderSelect = (t) => {
@@ -297,12 +280,7 @@ window.__ModuleLoader__.load({
           box.type = "checkbox";
           box.checked = Boolean(current());
           box.addEventListener("change", () => writeParam(section, spec.key, box.checked));
-          const state = document.createElement("span");
-          state.textContent = box.checked ? t("bool_on") : t("bool_off");
-          state.style.cssText = "font-size:12px;color:var(--dsw-alias-label-secondary);";
-          box.addEventListener("change", () => { state.textContent = box.checked ? t("bool_on") : t("bool_off"); });
           wrap.appendChild(box);
-          wrap.appendChild(state);
           field.appendChild(wrap);
           return box;
         }
@@ -340,11 +318,6 @@ window.__ModuleLoader__.load({
             container.appendChild(field);
           }
         }
-        const note = document.createElement("p");
-        note.className = "At1oFq_hint";
-        note.setAttribute("data-wse-param-note", "");
-        note.textContent = t("keylessNote");
-        container.appendChild(note);
       };
 
       // ---- inject / re-inject / sync ----
@@ -411,7 +384,7 @@ window.__ModuleLoader__.load({
 
         syncParams();
         refreshParamValues();
-        syncBadge();
+        hideOfficialBadge();
       };
 
       inject();
