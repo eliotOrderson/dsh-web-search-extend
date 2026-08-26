@@ -49,6 +49,8 @@ export const Config = z.object({
 	fetchBackend: z.string().default("local"),
 	/** Failover chain (D3): ordered adapter ids tried after the primary on switchable failures. */
 	fallbacks: z.array(z.string()).default([]),
+	/** Router cascade: when the active adapter HAS a native extract/crawl/map but the call fails, retry through the local composite tier. */
+	compositeFallback: z.boolean().default(true),
 	tools: z.object({
 		extract: z.boolean().default(true),
 		crawl: z.boolean().default(true),

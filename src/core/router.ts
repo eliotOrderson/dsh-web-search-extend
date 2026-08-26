@@ -92,6 +92,33 @@ async function settle<T>(operation: Promise<T>, label: string, signal?: AbortSig
 	}
 }
 
+/**
+ * Native-first with an optional local floor for extract/crawl/map: when
+ * `settings.compositeFallback` is not explicitly false, a failed native call
+ * retries through the zero-quota composite tier and the returned result carries
+ * an additive `warnings` entry naming the failure. Aborts always rethrow, and
+ * disabled mode reproduces the old hard-failure behavior verbatim.
+ */
+async function withCompositeFallback<T extends object>(
+	adapter: WebAdapter,
+	op: "extract" | "crawl" | "map",
+	runtime: AdapterRuntime,
+	signal: AbortSignal | undefined,
+	native: () => Promise<T>,
+	composite: () => Promise<T>,
+): Promise<T> {
+	try {
+		return await native();
+	} catch (error) {
+		const enabled = (runtime.settings as { compositeFallback?: boolean }).compositeFallback !== false;
+		const aborted = signal?.aborted === true || isAbortError(error) || (error instanceof WebError && error.code === "WEB_ABORTED");
+		if (!enabled || aborted) throw error;
+		const detail = error instanceof Error ? error.message : String(error);
+		const result = await composite();
+		return Object.assign(result, { warnings: [`${adapter.id} ${op} failed (${detail}); fell back to local ${op}`] });
+	}
+}
+
 async function dispatch(
 	op: WebOperation,
 	request: unknown,
@@ -105,7 +132,19 @@ async function dispatch(
 			return settle(adapter.search(request as WebSearchRequest, runtime, signal), `Search via "${adapter.id}"`, signal);
 		case "extract":
 			if (adapter.extract !== undefined) {
-				return settle(adapter.extract(request as ExtractRequest, runtime, signal), `Extract via "${adapter.id}"`, signal);
+				return withCompositeFallback(
+					adapter,
+					"extract",
+					runtime,
+					signal,
+					() => settle(adapter.extract!(request as ExtractRequest, runtime, signal), `Extract via "${adapter.id}"`, signal),
+					() =>
+						settle(
+							compositeExtract({ request: request as ExtractRequest, fetch, limits: compositeLimits(runtime.settings), signal }),
+							"Composite extract",
+							signal,
+						),
+				);
 			}
 			return settle(
 				compositeExtract({ request: request as ExtractRequest, fetch, limits: compositeLimits(runtime.settings), signal }),
@@ -114,7 +153,19 @@ async function dispatch(
 			);
 		case "crawl":
 			if (adapter.crawl !== undefined) {
-				return settle(adapter.crawl(request as CrawlRequest, runtime, signal), `Crawl via "${adapter.id}"`, signal);
+				return withCompositeFallback(
+					adapter,
+					"crawl",
+					runtime,
+					signal,
+					() => settle(adapter.crawl!(request as CrawlRequest, runtime, signal), `Crawl via "${adapter.id}"`, signal),
+					() =>
+						settle(
+							compositeCrawl({ request: request as CrawlRequest, fetch, limits: compositeLimits(runtime.settings), signal }),
+							"Composite crawl",
+							signal,
+						),
+				);
 			}
 			return settle(
 				compositeCrawl({ request: request as CrawlRequest, fetch, limits: compositeLimits(runtime.settings), signal }),
@@ -123,7 +174,19 @@ async function dispatch(
 			);
 		case "map":
 			if (adapter.map !== undefined) {
-				return settle(adapter.map(request as MapRequest, runtime, signal), `Map via "${adapter.id}"`, signal);
+				return withCompositeFallback(
+					adapter,
+					"map",
+					runtime,
+					signal,
+					() => settle(adapter.map!(request as MapRequest, runtime, signal), `Map via "${adapter.id}"`, signal),
+					() =>
+						settle(
+							compositeMap({ request: request as MapRequest, fetch, limits: compositeLimits(runtime.settings), signal }),
+							"Composite map",
+							signal,
+						),
+				);
 			}
 			return settle(
 				compositeMap({ request: request as MapRequest, fetch, limits: compositeLimits(runtime.settings), signal }),

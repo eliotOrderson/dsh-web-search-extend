@@ -126,6 +126,7 @@ usable on every provider.
 | `apiKeyEnv` | `FIRECRAWL_API_KEY` | Top-level credential ref: the settings card badge and save target. When it holds a managed ref (`TAVILY_API_KEY` / `DEEPSEEK_API_KEY` / `FIRECRAWL_API_KEY`), `apply()` re-syncs it to the active provider's default on provider change so the badge follows the provider. An arbitrary custom ref is respected untouched. |
 | `baseURL` | per-provider | Endpoint host root; falls back to the adapter env (`DEEPSEEK_SEARCH_BASE_URL` / `TAVILY_BASE_URL` / `FIRECRAWL_BASE_URL`). |
 | `fetchBackend` | `"local"` | `local`: existing fetch provider untouched. `"adapter"`: additionally registers a `web-search-extend` WebFetchProvider serving single-URL extract (requires NATIVE extract on the active adapter, e.g. tavily; select via `fetchProvider` / `DSH_WEB_FETCH_PROVIDER`). |
+| `compositeFallback` | `true` | When the active adapter has a native extract/crawl/map but the call fails, retry through the zero-quota local composite tier and mark the result with a warning. `false` surfaces the failure as-is. |
 | `fallbacks` | `[]` | Ordered adapter ids tried after the primary when it fails switchably (backend / quota / rate-limit / missing credential). Unknown ids, duplicates, and self-reference reject the settings write with a visible error; the provider then runs `[primary, ...fallbacks]` as one ChainAdapter. |
 | `tools.extract` | `true` | Register `web_extract`. |
 | `tools.crawl` | `true` | Register `web_crawl`. |

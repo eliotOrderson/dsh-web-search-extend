@@ -9,7 +9,7 @@
   - Settings 配置段 → `web-search-deepseek`（**配置页同位置、同布局，只是扩展**）
   - 注册的 `ctx.web` provider id → `deepseek-official`（接缝选择不变）
 - agent **仍使用旧 `web_search` 工具**——agent 侧零改动；工具仍调 `ctx.web.search`，现在路由到本插件，并按配置的 **search 提供商**（Firecrawl keyless / Tavily / DeepSeek）执行。
-- 配置页保留官方 **Web search** 卡，并由我们注入的客户端 UI 升级：**provider 下拉列出全部内置引擎**（firecrawl-keyless / tavily / deepseek）、随所选引擎显示对应参数字段、中英双语标签与提示。`fallbacks` 仍走配置文件/API；卡片源码在 `src/ui/client.js`，由构建压缩为 `lib/client.js`（**永远不要直接编辑 `lib/client.js`**）。
+- 配置页保留官方 **Web search** 卡，并由我们注入的客户端 UI 升级：**provider 下拉列出全部内置引擎**（firecrawl-keyless / tavily / deepseek）、随所选引擎显示对应参数字段、中英双语标签与提示，以及“提供商失败时回退本地实现”开关。`fallbacks` 仍走配置文件/API；卡片源码在 `src/ui/client.js`，由构建压缩为 `lib/client.js`（**永远不要直接编辑 `lib/client.js`**）。
 
 分层模块化；适配层**可插拔，不锁死 Tavily**：内置 Firecrawl（开箱 keyless）、DeepSeek（官方后端，保留）、Tavily（**支持 keyless**）。
 
@@ -111,6 +111,7 @@ WebAdapter 的文件；core 永远不改。
 | `apiKeyEnv` | `FIRECRAWL_API_KEY` | 顶层凭据引用：设置卡的 badge 与保存目标。当其值为受管 ref（`TAVILY_API_KEY` / `DEEPSEEK_API_KEY` / `FIRECRAWL_API_KEY`）时，`apply()` 会在 provider 变更时自动同步为当前 provider 的默认 ref，使 badge 跟随 provider；任意自定义 ref 不覆盖。 |
 | `baseURL` | 按 provider | 端点主机根；回退到适配器 env（`DEEPSEEK_SEARCH_BASE_URL` / `TAVILY_BASE_URL` / `FIRECRAWL_BASE_URL`）。 |
 | `fetchBackend` | `"local"` | `local`：不动现有 fetch provider。`"adapter"`：额外注册 `web-search-extend` WebFetchProvider 提供单 URL extract（要求当前适配器有**原生** extract，如 tavily；用 `fetchProvider` / `DSH_WEB_FETCH_PROVIDER` 选择）。 |
+| `compositeFallback` | `true` | 当前适配器原生支持 extract/crawl/map 但调用失败时，改用零配额的本地 composite 层重试，并在结果上附 warning；`false` 则直接抛出失败。 |
 | `fallbacks` | `[]` | 在主适配器发生可切换失败（后端 / 配额 / 限流 / 缺凭据）后依次尝试的有序 adapter id 列表。未知 id、重复项与自引用会以可见错误拒绝该次设置写入；provider 会把 `[primary, ...fallbacks]` 包装为一个 ChainAdapter 运行。 |
 | `tools.extract` | `true` | 注册 `web_extract`。 |
 | `tools.crawl` | `true` | 注册 `web_crawl`。 |

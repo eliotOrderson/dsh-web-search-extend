@@ -85,6 +85,84 @@ describe("router ladder: native wins", () => {
 	});
 });
 
+describe("router cascade: native failure falls back to the local composite", () => {
+	const failingExtract = (): WebAdapter =>
+		baseAdapter({
+			id: "tavily-like",
+			extract: async () => {
+				throw new WebError("keyless tier cannot extract", "WEB_PROVIDER_ERROR");
+			},
+		});
+
+	const docFetch: FetchLike = async ({ url }) => {
+		if (url === "https://site.example/doc") return htmlResponse(url, "<h1>Doc</h1><p>body text</p>");
+		throw new Error(`unexpected fetch: ${url}`);
+	};
+
+	it("retries a failed native extract through the composite and marks the result with a warning", async () => {
+		const result = (await execute({
+			op: "extract",
+			request: { urls: ["https://site.example/doc"] },
+			adapter: failingExtract(),
+			runtime: makeRuntime({ compositeFallback: true }),
+			fetch: docFetch,
+		})) as ExtractResult & { warnings?: string[] };
+		expect(result.pages[0]?.content).toContain("body text");
+		expect(result.warnings?.[0]).toContain("tavily-like extract failed");
+		expect(result.warnings?.[0]).toContain("fell back to local extract");
+	});
+
+	it("defaults to cascading when the flag is omitted", async () => {
+		const result = await execute({
+			op: "extract",
+			request: { urls: ["https://site.example/doc"] },
+			adapter: failingExtract(),
+			runtime: makeRuntime(),
+			fetch: docFetch,
+		});
+		expect(result.pages[0]?.content).toContain("body text");
+	});
+
+	it("surfaces the native failure untouched when compositeFallback is false", async () => {
+		await expect(
+			execute({
+				op: "extract",
+				request: { urls: ["https://site.example/doc"] },
+				adapter: failingExtract(),
+				runtime: makeRuntime({ compositeFallback: false }),
+				fetch: docFetch,
+			}),
+		).rejects.toMatchObject({ code: "WEB_PROVIDER_ERROR", message: expect.stringContaining("keyless tier") });
+	});
+
+	it("never cascades on abort", async () => {
+		const controller = new AbortController();
+		controller.abort();
+		const slow = baseAdapter({
+			id: "slow-extract",
+			extract: (_request, _runtime, signal) =>
+				new Promise((_resolve, reject) => {
+					signal?.addEventListener("abort", () => reject(new DOMException("This operation was aborted", "AbortError")));
+				}),
+		});
+		let captured: unknown;
+		try {
+			await execute({
+				op: "extract",
+				request: { urls: ["https://site.example/doc"] },
+				adapter: slow,
+				runtime: makeRuntime(),
+				fetch: docFetch,
+				signal: controller.signal,
+			});
+		} catch (e) {
+			captured = e;
+		}
+		expect(captured).toBeInstanceOf(WebError);
+		expect((captured as WebError).code).toBe("WEB_ABORTED");
+	});
+});
+
 describe("router ladder: composite floor for search-only adapters", () => {
 	it("serves extract, map, and crawl from composites", async () => {
 		const calls: string[] = [];
