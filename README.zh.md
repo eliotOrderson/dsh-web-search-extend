@@ -9,7 +9,7 @@
   - Settings 配置段 → `web-search-deepseek`（**配置页同位置、同布局，只是扩展**）
   - 注册的 `ctx.web` provider id → `deepseek-official`（接缝选择不变）
 - agent **仍使用旧 `web_search` 工具**——agent 侧零改动；工具仍调 `ctx.web.search`，现在路由到本插件，并按配置的 **search 提供商**（Firecrawl keyless / Tavily / DeepSeek）执行。
-- 配置页保留官方 **Web search** 卡（api_key / baseURL / maxUses）；官方卡的 provider 下拉只有 DeepSeek 与 Tavily——切换 Firecrawl keyless 以及配置 `fallbacks` 需通过配置文件或 API（卡片表单在上游硬编码；专属卡已在计划中）。
+- 配置页保留官方 **Web search** 卡，并由我们注入的客户端 UI 升级：**provider 下拉列出全部内置引擎**（firecrawl-keyless / tavily / deepseek）、随所选引擎显示对应参数字段、中英双语标签与提示。`fallbacks` 仍走配置文件/API；卡片源码在 `src/ui/client.js`，由构建压缩为 `lib/client.js`（**永远不要直接编辑 `lib/client.js`**）。
 
 分层模块化；适配层**可插拔，不锁死 Tavily**：内置 Firecrawl（开箱 keyless）、DeepSeek（官方后端，保留）、Tavily（**支持 keyless**）。
 
@@ -55,6 +55,9 @@ src/
     errors.ts         # WebError 分类（横切）
   adapters/           # 适配层（每后端一文件，可插拔）
   tools/              # 模型面工具（extract/crawl/map/research）+ 共享格式化器
+  ui/
+    client.js         # 浏览器侧设置卡注入器（顶部为 I18N 文案字典）；
+                      # 构建时经 esbuild 压缩为 lib/client.js
     deepseek.ts       # DeepSeekAdapter（官方 Anthropic-compatible API，保留）
     tavily.ts         # TavilyAdapter（keyless）+ 响应映射
     firecrawl.ts      # FirecrawlKeylessAdapter（keyless search）+ 响应映射

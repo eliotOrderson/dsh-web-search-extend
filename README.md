@@ -12,10 +12,12 @@ An **in-place replacement** for the official DeepSeek Harness web-search plugin
 - the agent **keeps using the old `web_search` tool** — nothing on the agent side changes;
   the tool still calls `ctx.web.search`, which now routes through this plugin into the configured
   **search provider** (Firecrawl keyless / Tavily / DeepSeek).
-- the config page keeps the stock **Web search** card (api_key / baseURL / maxUses);
-  the STOCK card's provider dropdown only offers DeepSeek and Tavily — switching to
-  Firecrawl keyless, and configuring `fallbacks`, is done via the settings
-  file or API (the card form is hardcoded upstream; a dedicated card is planned).
+- the config page keeps the stock **Web search** card, upgraded by our injected
+  client UI: a **provider selector listing every bundled engine**
+  (firecrawl-keyless / tavily / deepseek), per-provider parameter fields shown
+  for the active engine, and i18n (zh/en) labels + hints. `fallbacks` remains a
+  settings-file/API key; the card source lives in `src/ui/client.js` and is
+  minified into `lib/client.js` by the build (never edit `lib/client.js`).
 
 It is layered and modular (contract / config / core / adapter), and the adapter layer is
 **pluggable — not locked to Tavily**: Firecrawl (keyless out of the box), DeepSeek (official
@@ -66,6 +68,9 @@ src/
     errors.ts         # WebError taxonomy (cross-cutting)
   adapters/           # adapter layer (one file per backend — pluggable)
   tools/              # model-facing tools (extract/crawl/map/research) + formatters
+  ui/
+    client.js         # browser-side settings-card injector (I18N dict on top);
+                      # esbuild-minified into lib/client.js by the build
     deepseek.ts       # DeepSeekAdapter (official Anthropic-compatible API, preserved)
     tavily.ts         # TavilyAdapter (keyless) + response mapping
     firecrawl.ts      # FirecrawlKeylessAdapter (keyless search) + response mapping
