@@ -19,15 +19,15 @@ describe("capability pinning", () => {
 		expect(opsOf(DeepSeekAdapter)).toEqual(["search"]);
 	});
 
-	it("firecrawl-keyless derives search/extract/crawl/map natively", () => {
-		expect(opsOf(FirecrawlKeylessAdapter)).toEqual(["crawl", "extract", "map", "search"]);
+	it("firecrawl-keyless derives all five operations natively", () => {
+		expect(opsOf(FirecrawlKeylessAdapter)).toEqual(["crawl", "extract", "map", "research", "search"]);
 	});
 
 	it("requires BOTH research methods before granting the research capability", () => {
 		const submitOnly = {
-			...FirecrawlKeylessAdapter,
+			...DeepSeekAdapter,
 			submitResearch: async () => ({ requestId: "r-1", status: "pending" as const }),
 		} as WebAdapter;
-		expect(opsOf(submitOnly)).toEqual(["crawl", "extract", "map", "search"]);
+		expect(opsOf(submitOnly)).toEqual(["search"]);
 	});
 });

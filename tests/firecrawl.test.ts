@@ -39,6 +39,14 @@ const mocks = vi.hoisted(() => {
 		map(...args: unknown[]) {
 			return (FirecrawlMock as any).mapMock(...args);
 		}
+
+		startAgent(...args: unknown[]) {
+			return (FirecrawlMock as any).startAgentMock(...args);
+		}
+
+		getAgentStatus(...args: unknown[]) {
+			return (FirecrawlMock as any).getAgentStatusMock(...args);
+		}
 	}
 
 	(FirecrawlMock as any).instances = [];
@@ -46,6 +54,8 @@ const mocks = vi.hoisted(() => {
 	(FirecrawlMock as any).scrapeMock = vi.fn();
 	(FirecrawlMock as any).crawlMock = vi.fn();
 	(FirecrawlMock as any).mapMock = vi.fn();
+	(FirecrawlMock as any).startAgentMock = vi.fn();
+	(FirecrawlMock as any).getAgentStatusMock = vi.fn();
 
 	return { FirecrawlMock, SdkErrorMock };
 });
@@ -63,6 +73,8 @@ const searchMock = () => (mocks.FirecrawlMock as any).searchMock as ReturnType<t
 const scrapeMock = () => (mocks.FirecrawlMock as any).scrapeMock as ReturnType<typeof vi.fn>;
 const crawlMock = () => (mocks.FirecrawlMock as any).crawlMock as ReturnType<typeof vi.fn>;
 const mapMock = () => (mocks.FirecrawlMock as any).mapMock as ReturnType<typeof vi.fn>;
+const startAgentMock = () => (mocks.FirecrawlMock as any).startAgentMock as ReturnType<typeof vi.fn>;
+const getAgentStatusMock = () => (mocks.FirecrawlMock as any).getAgentStatusMock as ReturnType<typeof vi.fn>;
 
 beforeEach(() => {
 	(mocks.FirecrawlMock as any).instances.length = 0;
@@ -80,7 +92,7 @@ describe("registry + capability pinning", () => {
 		const adapter = createDefaultRegistry().get("firecrawl-keyless");
 		expect(adapter).toBeDefined();
 		expect(adapter?.requiresApiKey).toBe(false);
-		expect([...capabilitiesOf(adapter!)].sort()).toEqual(["crawl", "extract", "map", "search"]);
+		expect([...capabilitiesOf(adapter!)].sort()).toEqual(["crawl", "extract", "map", "research", "search"]);
 	});
 });
 
@@ -198,7 +210,72 @@ describe("map mapping", () => {
 	});
 });
 
+
+describe("research mapping", () => {
+	it("submits an agent job and returns its id as pending", async () => {
+		startAgentMock().mockResolvedValue({ success: true, id: "agent-1" });
+		const result = await FirecrawlKeylessAdapter.submitResearch!("what is the weather", runtime);
+		expect(result).toEqual({ requestId: "agent-1", status: "pending" });
+		expect(startAgentMock()).toHaveBeenCalledWith({ prompt: "what is the weather", schema: expect.objectContaining({ type: "object", required: ["summary", "analysis", "sources", "recommendations"] }) });
+	});
+
+	it("fails with WEB_PROVIDER_ERROR when the agent response has no id", async () => {
+		startAgentMock().mockResolvedValue({ success: true, error: "missing" });
+		await expect(FirecrawlKeylessAdapter.submitResearch!("q", runtime)).rejects.toMatchObject({
+			code: "WEB_PROVIDER_ERROR",
+			message: expect.stringContaining("no job id"),
+		});
+	});
+
+	it("maps processing status to pending", async () => {
+		getAgentStatusMock().mockResolvedValue({ success: true, status: "processing", data: "thinking", expiresAt: "x" });
+		const result = await FirecrawlKeylessAdapter.pollResearch!("agent-1", runtime);
+		expect(result).toEqual({ requestId: "agent-1", status: "pending", content: "thinking" });
+		expect(getAgentStatusMock()).toHaveBeenCalledWith("agent-1");
+	});
+
+	it("maps completed agent output to content plus extracted source URLs", async () => {
+		getAgentStatusMock().mockResolvedValue({
+			success: true,
+			status: "completed",
+			data: {
+				result: "Done",
+				sources: ["https://a.example/1", "https://a.example/1"],
+			},
+			expiresAt: "x",
+		});
+		const result = await FirecrawlKeylessAdapter.pollResearch!("agent-1", runtime);
+		expect(result.status).toBe("completed");
+		expect(result.content).toBe("Done");
+		expect(result.sources).toEqual([{ url: "https://a.example/1" }]);
+	});
+
+	it("maps failed agent status with an error message", async () => {
+		getAgentStatusMock().mockResolvedValue({ success: true, status: "failed", error: "boom", expiresAt: "x" });
+		const result = await FirecrawlKeylessAdapter.pollResearch!("agent-1", runtime);
+		expect(result.status).toBe("failed");
+		expect(result.content).toBeUndefined();
+	});
+
+	it("throws WEB_ABORTED before dispatching when the signal is already aborted", async () => {
+		const controller = new AbortController();
+		controller.abort(new Error("user cancelled"));
+		await expect(FirecrawlKeylessAdapter.submitResearch!("q", runtime, controller.signal)).rejects.toMatchObject({
+			code: "WEB_ABORTED",
+		});
+		expect(startAgentMock()).not.toHaveBeenCalled();
+	});
+});
+
 describe("error normalization", () => {
+	it("maps keyless HTTP 401 on agent research to a clear key-required message", async () => {
+		startAgentMock().mockRejectedValue(new mocks.SdkErrorMock("This endpoint is not supported by the keyless free tier", 401));
+		await expect(FirecrawlKeylessAdapter.submitResearch!("q", runtime)).rejects.toMatchObject({
+			code: "WEB_PROVIDER_ERROR",
+			message: expect.stringContaining("not available on the keyless free tier"),
+		});
+	});
+
 	it("maps HTTP 402 to WEB_PROVIDER_ERROR naming the monthly quota and the credential ref", async () => {
 		searchMock().mockRejectedValue(new mocks.SdkErrorMock("Payment required", 402));
 		await expect(FirecrawlKeylessAdapter.search({ query: "q" }, runtime)).rejects.toMatchObject({

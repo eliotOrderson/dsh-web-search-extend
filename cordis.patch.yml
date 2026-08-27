@@ -11,7 +11,9 @@
 - insert:
     - id: dsh-web-search-extend
       name: '@mr.robot/dsh-web-search-extend'
-      config: {}
+      config:
+        tools:
+          research: true
 
 - id: web-search-deepseek
   disabled: true

@@ -3,11 +3,11 @@
  * through the official `firecrawl` SDK, which serves an unauthenticated
  * keyless tier (free monthly credits capped per IP); a resolved `fc-` key
  * upgrades the quota and is then sent as a Bearer token by the SDK.
- * Search, scrape, crawl, and map are native; they consume the shared monthly
- * credits, so an exhausted keyless quota surfaces HTTP 402.
+ * Search, scrape, crawl, map, and agent research are native; they consume the
+ * shared monthly credits, so an exhausted keyless quota surfaces HTTP 402.
  * @module dsh-web-search-extend/adapters/firecrawl
  */
-import { Firecrawl, SdkError, type CrawlOptions, type Document, type MapData, type MapOptions, type ScrapeOptions, type SearchData, type SearchResultWeb } from "firecrawl";
+import { Firecrawl, SdkError, type AgentResponse, type AgentStatusResponse, type CrawlOptions, type Document, type MapData, type MapOptions, type ScrapeOptions, type SearchData, type SearchResultWeb } from "firecrawl";
 import { WebError, type WebSearchResult, type WebSearchSource } from "@deepseek-ai/dsh-web";
 import type {
 	AdapterRuntime,
@@ -17,6 +17,9 @@ import type {
 	ExtractResult,
 	MapRequest,
 	MapResult,
+	ResearchPhase,
+	ResearchStatus,
+	ResearchSubmission,
 	SearchAdapter,
 } from "../types.js";
 import { FIRECRAWL_API_KEY_ENV, FIRECRAWL_BASE_URL_ENV, FIRECRAWL_DEFAULT_BASE_URL } from "../config.js";
@@ -29,6 +32,18 @@ const KEY_SHAPE = /^fc-/;
 
 /** Markdown is the closest Firecrawl format to the seam's readable content. */
 const SCRAPE_OPTIONS: ScrapeOptions = { formats: ["markdown"] };
+
+/** Structured agent output kept as the default so reports carry analysis and recommendations, not just bullets. */
+const DEFAULT_AGENT_SCHEMA = {
+	type: "object",
+	properties: {
+		summary: { type: "string", description: "executive summary of the research" },
+		analysis: { type: "string", description: "detailed analysis with evidence" },
+		sources: { type: "array", items: { type: "string" }, description: "source URLs used" },
+		recommendations: { type: "array", items: { type: "string" }, description: "actionable recommendations" },
+	},
+	required: ["summary", "analysis", "sources", "recommendations"],
+} as const;
 
 /** One web hit in the Firecrawl v2 search response. */
 type FirecrawlSearchHit = SearchResultWeb | Document;
@@ -89,6 +104,61 @@ function mapDocument(document: Document, fallbackUrl: string): ExtractResult["pa
 	};
 }
 
+/** Vendor status strings outside the closed union collapse to `unknown`. */
+function agentPhase(status: AgentStatusResponse["status"]): ResearchPhase {
+	return status === "processing" || status === "completed" || status === "failed" ? (status === "processing" ? "pending" : status) : "unknown";
+}
+
+/** Recursively collect URL strings from an agent payload. */
+function collectAgentUrls(value: unknown, out: string[]): void {
+	if (typeof value === "string") {
+		if (value.length > 0 && /^https?:\/\//i.test(value)) out.push(value);
+		return;
+	}
+	if (!Array.isArray(value) && typeof value !== "object") return;
+	if (value === null) return;
+	if (Array.isArray(value)) {
+		for (const item of value) collectAgentUrls(item, out);
+		return;
+	}
+	for (const key of Object.keys(value as Record<string, unknown>)) {
+		if (key.toLowerCase() === "url") {
+			const candidate = (value as Record<string, unknown>)[key];
+			if (typeof candidate === "string" && candidate.length > 0 && /^https?:\/\//i.test(candidate)) out.push(candidate);
+		}
+		collectAgentUrls((value as Record<string, unknown>)[key], out);
+	}
+}
+
+/** Map Firecrawl agent output to the seam's research status shape. */
+function mapAgentStatus(response: AgentStatusResponse): ResearchStatus {
+	const raw = response.data;
+	const resultText = raw !== null && typeof raw === "object" && typeof (raw as { result?: unknown }).result === "string"
+		? (raw as { result: string }).result
+		: undefined;
+	const content = typeof raw === "string"
+		? raw
+		: resultText !== undefined && resultText.length > 0
+			? resultText
+			: raw !== undefined
+				? JSON.stringify(raw)
+				: undefined;
+	const sources: string[] = [];
+	collectAgentUrls(response.data, sources);
+	const seen = new Set<string>();
+	const uniqueSources = sources.filter((url) => {
+		if (seen.has(url)) return false;
+		seen.add(url);
+		return true;
+	});
+	return {
+		requestId: "agent",
+		status: agentPhase(response.status),
+		...(content !== undefined && content.length > 0 ? { content } : {}),
+		...(uniqueSources.length > 0 ? { sources: uniqueSources.map((url) => ({ url })) } : {}),
+	};
+}
+
 /** Map SDK errors to seam errors; 402/429 keep their actionable messages. */
 function normalizeFirecrawlError(error: unknown, runtime: AdapterRuntime): unknown {
 	if (error instanceof SdkError) {
@@ -101,6 +171,13 @@ function normalizeFirecrawlError(error: unknown, runtime: AdapterRuntime): unkno
 		}
 		if (error.status === 429) {
 			return new WebError(`Firecrawl rate limit exceeded: ${error.message}`, "WEB_PROVIDER_ERROR", { cause: error });
+		}
+		if (error.status === 401 && (runtime.apiKey === undefined || runtime.apiKey.length === 0)) {
+			return new WebError(
+				`Firecrawl agent research is not available on the keyless free tier: ${error.message}. Set ${runtime.apiKeyEnv ?? FIRECRAWL_API_KEY_ENV} to a Firecrawl API key.`,
+				"WEB_PROVIDER_ERROR",
+				{ cause: error },
+			);
 		}
 		return new WebError(`Firecrawl API error: ${error.message} (HTTP ${error.status ?? "unknown"})`, "WEB_PROVIDER_ERROR", { cause: error });
 	}
@@ -181,6 +258,36 @@ export const FirecrawlKeylessAdapter: SearchAdapter = {
 				urls.push(link.url);
 			}
 			return { urls, truncated: false };
+		} catch (error) {
+			throw normalizeFirecrawlError(error, runtime);
+		}
+	},
+
+	async submitResearch(input: string, runtime: AdapterRuntime, signal?: AbortSignal): Promise<ResearchSubmission> {
+		runtime.recordRequest?.({ endpoint: `${runtime.baseURL}/v2/agent`, params: { prompt: input, schema: DEFAULT_AGENT_SCHEMA } });
+		throwIfAborted(signal);
+		const client = clientFor(runtime);
+		try {
+			const response: AgentResponse = await client.startAgent({ prompt: input, schema: DEFAULT_AGENT_SCHEMA });
+			if (response.id == null || response.id.length === 0) {
+				throw new WebError(
+					`Firecrawl agent returned no job id${response.error !== undefined ? `: ${response.error}` : ""}`,
+					"WEB_PROVIDER_ERROR",
+				);
+			}
+			return { requestId: response.id, status: "pending" };
+		} catch (error) {
+			throw normalizeFirecrawlError(error, runtime);
+		}
+	},
+
+	async pollResearch(requestId: string, runtime: AdapterRuntime, signal?: AbortSignal): Promise<ResearchStatus> {
+		runtime.recordRequest?.({ endpoint: `${runtime.baseURL}/v2/agent/${requestId}`, params: {} });
+		throwIfAborted(signal);
+		const client = clientFor(runtime);
+		try {
+			const response: AgentStatusResponse = await client.getAgentStatus(requestId);
+			return { ...mapAgentStatus(response), requestId };
 		} catch (error) {
 			throw normalizeFirecrawlError(error, runtime);
 		}
