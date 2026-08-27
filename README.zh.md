@@ -53,6 +53,7 @@ src/
     registry.ts       # AdapterRegistry（可插拔机制）
     abort.ts          # 取消处理（横切）
     errors.ts         # WebError 分类（横切）
+    localFetch.ts     # 默认本地 web_fetch provider（兜底，让位给任何可用 provider）
   adapters/           # 适配层（每后端一文件，可插拔）
   tools/              # 模型面工具（extract/crawl/map/research）+ 共享格式化器
   ui/
@@ -60,7 +61,7 @@ src/
                       # 构建时经 esbuild 压缩为 lib/client.js
     deepseek.ts       # DeepSeekAdapter（官方 Anthropic-compatible API，保留）
     tavily.ts         # TavilyAdapter（keyless）+ 响应映射
-    firecrawl.ts      # FirecrawlKeylessAdapter（keyless search）+ 响应映射
+    firecrawl.ts      # FirecrawlKeylessAdapter（keyless search/extract/crawl/map）+ 响应映射
     index.ts          # createDefaultRegistry() 注册全部内置适配器
 ```
 
@@ -95,7 +96,7 @@ WebAdapter 的文件；core 永远不改。
 
 | id | 凭据 ref | keyless 行为 | 原生操作 |
 | :--- | :--- | :--- | :--- |
-| `firecrawl-keyless`（**默认**） | `FIRECRAWL_API_KEY`（可选，用于提升配额） | 开箱即搜（约每 IP 每月 1000 credits；耗尽返回 HTTP 402） | search |
+| `firecrawl-keyless`（**默认**） | `FIRECRAWL_API_KEY`（可选，用于提升配额） | 开箱即搜/extract/crawl/map（约每 IP 每月 1000 credits；耗尽返回 HTTP 402） | search / extract / crawl / map |
 | `tavily` | `TAVILY_API_KEY` | 仅 search（限流） | 全部五个（search/extract/crawl/map/research） |
 | `deepseek` | `DEEPSEEK_API_KEY`（必需） | 无——缺 key 即拒绝 | search |
 
@@ -110,7 +111,7 @@ WebAdapter 的文件；core 永远不改。
 | `apiKey` | 省略 | 字面 key（secret 角色）。官方设置卡会把值写入 `apiKeyEnv` 指向的 ref，而不是设置文件。 |
 | `apiKeyEnv` | `FIRECRAWL_API_KEY` | 顶层凭据引用：设置卡的 badge 与保存目标。当其值为受管 ref（`TAVILY_API_KEY` / `DEEPSEEK_API_KEY` / `FIRECRAWL_API_KEY`）时，`apply()` 会在 provider 变更时自动同步为当前 provider 的默认 ref，使 badge 跟随 provider；任意自定义 ref 不覆盖。 |
 | `baseURL` | 按 provider | 端点主机根；回退到适配器 env（`DEEPSEEK_SEARCH_BASE_URL` / `TAVILY_BASE_URL` / `FIRECRAWL_BASE_URL`）。 |
-| `fetchBackend` | `"local"` | `local`：不动现有 fetch provider。`"adapter"`：额外注册 `web-search-extend` WebFetchProvider 提供单 URL extract（要求当前适配器有**原生** extract，如 tavily；用 `fetchProvider` / `DSH_WEB_FETCH_PROVIDER` 选择）。 |
+| `fetchBackend` | `"local"` | `local`：不动现有 fetch provider；同时注册 `web-search-extend-local` 兜底，仅在没有其他可用 fetch provider 时生效（保证禁用官方插件后 composite/web_fetch 仍可用）。`"adapter"`：额外注册 `web-search-extend` WebFetchProvider 提供单 URL extract（要求当前适配器有**原生** extract，如 tavily/firecrawl；用 `fetchProvider` / `DSH_WEB_FETCH_PROVIDER` 选择）。 |
 | `compositeFallback` | `true` | 当前适配器原生支持 extract/crawl/map 但调用失败时，改用零配额的本地 composite 层重试，并在结果上附 warning；`false` 则直接抛出失败。 |
 | `fallbacks` | `[]` | 在主适配器发生可切换失败（后端 / 配额 / 限流 / 缺凭据）后依次尝试的有序 adapter id 列表。未知 id、重复项与自引用会以可见错误拒绝该次设置写入；provider 会把 `[primary, ...fallbacks]` 包装为一个 ChainAdapter 运行。 |
 | `tools.extract` | `true` | 注册 `web_extract`。 |
@@ -159,9 +160,9 @@ apiKeyEnv → adapter 默认；badge 机制与受管 ref 自动同步见 AGENTS.
 | 工具 | 参数 | 行为 |
 | :--- | :--- | :--- |
 | `web_search` | `queries: string[]` | 官方工具，未改动——经所选 provider 路由。 |
-| `web_extract` | `urls: string[]`、`query?`、`format?` | 已知 URL 的可读内容（markdown/text）。tavily 原生；通用 composite 兜底。 |
-| `web_crawl` | `url`、`maxPages?`、`includeDomains?`、`excludeDomains?` | 站点有界爬取。tavily 原生；BFS composite 兜底。 |
-| `web_map` | `url`、`maxUrls?` | 枚举站点 URL。tavily 原生；sitemap/robots composite 兜底。 |
+| `web_extract` | `urls: string[]`、`query?`、`format?` | 已知 URL 的可读内容（markdown/text）。tavily/firecrawl 原生；通用 composite 兜底。 |
+| `web_crawl` | `url`、`maxPages?`、`includeDomains?`、`excludeDomains?` | 站点有界爬取。tavily/firecrawl 原生；BFS composite 兜底。 |
+| `web_map` | `url`、`maxUrls?` | 枚举站点 URL。tavily/firecrawl 原生；sitemap/robots composite 兜底。 |
 | `web_research` | `input` | 提交异步深度研究任务（耗 credits！）；返回 requestId。 |
 | `web_research_status` | `requestId` | 轮询研究任务到终态；随后返回内容 + 来源列表。 |
 | `web_doctor` | （无） | 离线就绪报告：列出每个已注册引擎的 key-ref 状态（仅布尔，绝不出值）、端点来源（config/env/default）、冷却窗口、可用性判定与解析后的生效链。零网络、零配额。 |
@@ -185,16 +186,19 @@ keyless 上限 / 端点不可用）。在凭据服务（Models 页）配置 TAVI
 
 ## Firecrawl keyless
 
-`FirecrawlKeylessAdapter` 是默认 `provider`：零配置即可对 Firecrawl 托管 v2 端点执行搜索。注意：
+`FirecrawlKeylessAdapter` 是默认 `provider`：零配置即可对 Firecrawl 托管 v2 端点执行
+search、extract、crawl、map。注意：
 
 - **每月 credit 配额** —— keyless 层免费但有上限（约每 IP 每月 1000 credits；
-  search 每 10 个结果消耗 2 credits）。耗尽后 Firecrawl 返回 HTTP 402，插件以
-  `WEB_PROVIDER_ERROR` 上报，并指明配额与 `FIRECRAWL_API_KEY`。
+  search 每 10 个结果消耗 2 credits，原生 extract/crawl/map 共用同一池）。
+  耗尽后 Firecrawl 返回 HTTP 402，插件以 `WEB_PROVIDER_ERROR` 上报，并指明配额与
+  `FIRECRAWL_API_KEY`。
 - **配置 key 可提升配额** —— 在 `FIRECRAWL_API_KEY`（凭据服务 / Models 页）存入
   `fc-...` key 即可解除上限；已解析的 key 会以 Bearer token 发送，而非空且不以
   `fc-` 开头的值会让适配器不可用（视为存错 ref）。
-- **仅 search，刻意为之** —— extract/crawl/map 继续走 composite 层：每月共享
-  credits 只花在搜索上；即使配额耗尽，这些工具仍可（免配额）继续使用。
+- **原生操作** —— search/scrape/crawl/map 由 Firecrawl 原生服务；当原生调用失败时，
+  若启用 `compositeFallback`，可回退到零配额的本地 composite 层，因此共享配额耗尽后
+  extract/crawl/map 仍有可能通过回退继续恢复。
 
 
 ## 故障转移链
@@ -246,10 +250,12 @@ keyless 上限 / 端点不可用）。在凭据服务（Models 页）配置 TAVI
 
 ## 已验证
 
-- **102 个 vitest 测试**（`tests/`）：路由阶梯、能力 pinning（tavily 五操作；
-  deepseek/firecrawl 仅 search）、composite fixtures（sitemap 解析、HTML 转换、BFS 环路安全、单页失败隔离）、
-  Tavily 全部响应形状映射、Firecrawl keyless 搜索（mock fetch：映射、鉴权头规则、
-  402/429 配额/限流错误）、ChainAdapter 故障转移（可切换 vs 不可切换、原生能力跳过、
+- **115 个 vitest 测试**（`tests/`）：路由阶梯、能力 pinning（tavily 五操作；
+  deepseek 仅 search；firecrawl search/extract/crawl/map）、本地 fetch provider（兜底
+  可用性 + HTML/text body 映射）、composite fixtures（sitemap 解析、HTML 转换、BFS
+  环路安全、单页失败隔离）、Tavily 全部响应形状映射、Firecrawl keyless
+  search/scrape/crawl/map（mock SDK：映射、鉴权头规则、402/429 配额/限流错误）、
+  ChainAdapter 故障转移（可切换 vs 不可切换、原生能力跳过、
   D3 校验）、假时钟 cooldown 调度（指数退避、成功重置、全冷却最后手段）、多 key
   轮换（首个 key 401 → 第二个 key 服务）、降级轨迹（降级结果/错误携带 warnings +
   attempts，直接成功保持静默）与离线 doctor 报告（列出全部成员；输出不含任何

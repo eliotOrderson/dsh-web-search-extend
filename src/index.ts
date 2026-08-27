@@ -26,6 +26,7 @@ import { AdapterRegistry } from "./core/registry.js";
 import { chainOf, resolveChain } from "./core/chain.js";
 import { CooldownBoard } from "./core/cooldown.js";
 import { rotatingKey } from "./core/rotating-key.js";
+import { makeLocalFetchProvider } from "./core/localFetch.js";
 import { createDefaultRegistry } from "./adapters/index.js";
 import { applyWebTools } from "./tools/index.js";
 
@@ -196,6 +197,8 @@ function apply(ctx: Context, config: ConfigType): void {
 	});
 	const resolveOpts = resolveOptions(ctx, current, registry, cooldowns);
 	ctx.web.registerSearchProvider(new ExtensibleWebSearchProvider(resolveOpts));
+	const fetchProviders = () => [...(ctx.web as unknown as { fetchProviders: Map<string, WebFetchProvider> }).fetchProviders.values()];
+	ctx.web.registerFetchProvider(makeLocalFetchProvider(fetchProviders));
 	applyWebTools(ctx, resolveOpts, current().tools, { registry, config: current, cooldowns });
 	if (current().fetchBackend === "adapter") {
 		ctx.web.registerFetchProvider(makeFetchProvider(ctx, resolveOpts));

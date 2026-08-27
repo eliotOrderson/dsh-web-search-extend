@@ -27,10 +27,25 @@ const mocks = vi.hoisted(() => {
 		search(...args: unknown[]) {
 			return (FirecrawlMock as any).searchMock(...args);
 		}
+
+		scrape(...args: unknown[]) {
+			return (FirecrawlMock as any).scrapeMock(...args);
+		}
+
+		crawl(...args: unknown[]) {
+			return (FirecrawlMock as any).crawlMock(...args);
+		}
+
+		map(...args: unknown[]) {
+			return (FirecrawlMock as any).mapMock(...args);
+		}
 	}
 
 	(FirecrawlMock as any).instances = [];
 	(FirecrawlMock as any).searchMock = vi.fn();
+	(FirecrawlMock as any).scrapeMock = vi.fn();
+	(FirecrawlMock as any).crawlMock = vi.fn();
+	(FirecrawlMock as any).mapMock = vi.fn();
 
 	return { FirecrawlMock, SdkErrorMock };
 });
@@ -45,6 +60,9 @@ const client = () => (mocks.FirecrawlMock as any).instances[0] as {
 };
 
 const searchMock = () => (mocks.FirecrawlMock as any).searchMock as ReturnType<typeof vi.fn>;
+const scrapeMock = () => (mocks.FirecrawlMock as any).scrapeMock as ReturnType<typeof vi.fn>;
+const crawlMock = () => (mocks.FirecrawlMock as any).crawlMock as ReturnType<typeof vi.fn>;
+const mapMock = () => (mocks.FirecrawlMock as any).mapMock as ReturnType<typeof vi.fn>;
 
 beforeEach(() => {
 	(mocks.FirecrawlMock as any).instances.length = 0;
@@ -58,11 +76,11 @@ afterEach(() => {
 const runtime = { apiKeyEnv: "FIRECRAWL_API_KEY", baseURL: "https://api.firecrawl.test", settings: {} };
 
 describe("registry + capability pinning", () => {
-	it("registers firecrawl-keyless as a keyless, search-only bundled adapter", () => {
+	it("registers firecrawl-keyless as a keyless adapter with search/extract/crawl/map", () => {
 		const adapter = createDefaultRegistry().get("firecrawl-keyless");
 		expect(adapter).toBeDefined();
 		expect(adapter?.requiresApiKey).toBe(false);
-		expect([...capabilitiesOf(adapter!)].sort()).toEqual(["search"]);
+		expect([...capabilitiesOf(adapter!)].sort()).toEqual(["crawl", "extract", "map", "search"]);
 	});
 });
 
@@ -109,6 +127,74 @@ describe("search mapping", () => {
 		searchMock().mockResolvedValue({ web: [] });
 		await FirecrawlKeylessAdapter.search({ query: "q" }, runtime);
 		expect(searchMock()).toHaveBeenCalledWith("q", { limit: 5 });
+	});
+});
+
+describe("extract mapping", () => {
+	it("maps a scraped Document into the seam page shape", async () => {
+		scrapeMock().mockResolvedValue({
+			markdown: "# Hello",
+			metadata: { title: "Page", sourceURL: "https://a.example/1" },
+		});
+		const result = await FirecrawlKeylessAdapter.extract!({ urls: ["https://a.example/1"], format: "markdown" }, runtime);
+		expect(result).toEqual({
+			pages: [{ url: "https://a.example/1", title: "Page", content: "# Hello" }],
+			truncated: false,
+		});
+		expect(scrapeMock()).toHaveBeenCalledWith("https://a.example/1", { formats: ["markdown"] });
+	});
+
+	it("keeps per-URL failures as page-level failure reasons", async () => {
+		scrapeMock().mockRejectedValueOnce(new Error("boom")).mockResolvedValueOnce({
+			markdown: "ok",
+			metadata: { sourceURL: "https://b.example/2" },
+		});
+		const result = await FirecrawlKeylessAdapter.extract!({ urls: ["https://a.example/1", "https://b.example/2"] }, runtime);
+		expect(result.pages).toEqual([
+			{ url: "https://a.example/1", failureReason: "boom" },
+			{ url: "https://b.example/2", content: "ok" },
+		]);
+	});
+});
+
+describe("crawl mapping", () => {
+	it("maps a completed crawl job into pages", async () => {
+		crawlMock().mockResolvedValue({
+			status: "completed",
+			data: [
+				{ markdown: "# A", metadata: { title: "A", sourceURL: "https://site/a" } },
+				{ html: "<p>B</p>", metadata: { sourceURL: "https://site/b" } },
+			],
+		});
+		const result = await FirecrawlKeylessAdapter.crawl!({ url: "https://site", maxPages: 5 }, runtime);
+		expect(result).toEqual({
+			pages: [
+				{ url: "https://site/a", title: "A", content: "# A" },
+				{ url: "https://site/b", content: "<p>B</p>" },
+			],
+			truncated: false,
+		});
+		expect(crawlMock()).toHaveBeenCalledWith("https://site", expect.objectContaining({
+			limit: 5,
+			scrapeOptions: { formats: ["markdown"] },
+			pollInterval: 2,
+			timeout: 60,
+		}));
+	});
+});
+
+describe("map mapping", () => {
+	it("dedupes mapped links into a URL list", async () => {
+		mapMock().mockResolvedValue({
+			links: [
+				{ url: "https://site/a" },
+				{ url: "https://site/a" },
+				{ url: "https://site/b" },
+			],
+		});
+		const result = await FirecrawlKeylessAdapter.map!({ url: "https://site", maxUrls: 10 }, runtime);
+		expect(result).toEqual({ urls: ["https://site/a", "https://site/b"], truncated: false });
+		expect(mapMock()).toHaveBeenCalledWith("https://site", { limit: 10 });
 	});
 });
 

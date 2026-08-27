@@ -66,6 +66,7 @@ src/
     registry.ts       # AdapterRegistry (the pluggability mechanism)
     abort.ts          # cancellation handling (cross-cutting)
     errors.ts         # WebError taxonomy (cross-cutting)
+    localFetch.ts     # default local web_fetch provider (fallback, yields to any usable provider)
   adapters/           # adapter layer (one file per backend — pluggable)
   tools/              # model-facing tools (extract/crawl/map/research) + formatters
   ui/
@@ -73,7 +74,7 @@ src/
                       # esbuild-minified into lib/client.js by the build
     deepseek.ts       # DeepSeekAdapter (official Anthropic-compatible API, preserved)
     tavily.ts         # TavilyAdapter (keyless) + response mapping
-    firecrawl.ts      # FirecrawlKeylessAdapter (keyless search) + response mapping
+    firecrawl.ts      # FirecrawlKeylessAdapter (keyless search/extract/crawl/map) + response mapping
     index.ts          # createDefaultRegistry() registers all bundled adapters
 ```
 
@@ -109,7 +110,7 @@ provider = one file implementing WebAdapter; the core never changes.
 
 | id | Credential ref | Keyless behavior | Native ops |
 | :--- | :--- | :--- | :--- |
-| `firecrawl-keyless` (**default**) | `FIRECRAWL_API_KEY` (optional; upgrades quota) | search out of the box (~1000 credits/month/IP; HTTP 402 when exhausted) | search |
+| `firecrawl-keyless` (**default**) | `FIRECRAWL_API_KEY` (optional; upgrades quota) | search/extract/crawl/map out of the box (~1000 credits/month/IP; HTTP 402 when exhausted) | search / extract / crawl / map |
 | `tavily` | `TAVILY_API_KEY` | search only (rate-limited) | all five (search/extract/crawl/map/research) |
 | `deepseek` | `DEEPSEEK_API_KEY` (required) | none - refuses without a key | search |
 
@@ -125,7 +126,7 @@ usable on every provider.
 | `apiKey` | omitted | Literal key (secret role). The stock settings card writes the value into the ref named by `apiKeyEnv`, NOT into the settings file. |
 | `apiKeyEnv` | `FIRECRAWL_API_KEY` | Top-level credential ref: the settings card badge and save target. When it holds a managed ref (`TAVILY_API_KEY` / `DEEPSEEK_API_KEY` / `FIRECRAWL_API_KEY`), `apply()` re-syncs it to the active provider's default on provider change so the badge follows the provider. An arbitrary custom ref is respected untouched. |
 | `baseURL` | per-provider | Endpoint host root; falls back to the adapter env (`DEEPSEEK_SEARCH_BASE_URL` / `TAVILY_BASE_URL` / `FIRECRAWL_BASE_URL`). |
-| `fetchBackend` | `"local"` | `local`: existing fetch provider untouched. `"adapter"`: additionally registers a `web-search-extend` WebFetchProvider serving single-URL extract (requires NATIVE extract on the active adapter, e.g. tavily; select via `fetchProvider` / `DSH_WEB_FETCH_PROVIDER`). |
+| `fetchBackend` | `"local"` | `local`: existing fetch provider untouched; a `web-search-extend-local` fallback is registered and becomes usable only when no other fetch provider is available (keeps composite/web_fetch working after the official plugin is disabled). `"adapter"`: additionally registers a `web-search-extend` WebFetchProvider serving single-URL extract (requires NATIVE extract on the active adapter, e.g. tavily/firecrawl; select via `fetchProvider` / `DSH_WEB_FETCH_PROVIDER`). |
 | `compositeFallback` | `true` | When the active adapter has a native extract/crawl/map but the call fails, retry through the zero-quota local composite tier and mark the result with a warning. `false` surfaces the failure as-is. |
 | `fallbacks` | `[]` | Ordered adapter ids tried after the primary when it fails switchably (backend / quota / rate-limit / missing credential). Unknown ids, duplicates, and self-reference reject the settings write with a visible error; the provider then runs `[primary, ...fallbacks]` as one ChainAdapter. |
 | `tools.extract` | `true` | Register `web_extract`. |
@@ -175,9 +176,9 @@ mechanism and the managed-ref auto-sync).
 | Tool | Args | Behavior |
 | :--- | :--- | :--- |
 | `web_search` | `queries: string[]` | Official tool, unchanged - routes through the selected provider. |
-| `web_extract` | `urls: string[]`, `query?`, `format?` | Readable content of known URLs (markdown/text). Native on tavily; universal composite fallback. |
-| `web_crawl` | `url`, `maxPages?`, `includeDomains?`, `excludeDomains?` | Bounded crawl of a site. Native on tavily; BFS composite fallback. |
-| `web_map` | `url`, `maxUrls?` | Enumerate site URLs. Native on tavily; sitemap/robots composite fallback. |
+| `web_extract` | `urls: string[]`, `query?`, `format?` | Readable content of known URLs (markdown/text). Native on tavily/firecrawl; universal composite fallback. |
+| `web_crawl` | `url`, `maxPages?`, `includeDomains?`, `excludeDomains?` | Bounded crawl of a site. Native on tavily/firecrawl; BFS composite fallback. |
+| `web_map` | `url`, `maxUrls?` | Enumerate site URLs. Native on tavily/firecrawl; sitemap/robots composite fallback. |
 | `web_research` | `input` | Submit an async deep-research task (credits!); returns requestId. |
 | `web_research_status` | `requestId` | Poll one research task to a terminal phase; then returns content + sources. |
 | `web_doctor` | (none) | Offline readiness report: every registered engine with key-ref status (booleans only, never values), endpoint source (config/env/default), cooldown windows, availability verdict, and the resolved effective chain. Zero network, zero quota. |
@@ -205,20 +206,23 @@ resolved per provider with no cross-provider fallback (see AGENTS.md).
 
 ## Firecrawl keyless
 
-`FirecrawlKeylessAdapter` is the default `provider`: search works with zero
-configuration against the hosted Firecrawl v2 endpoint. Caveats:
+`FirecrawlKeylessAdapter` is the default `provider`: search, extract, crawl, and
+map work with zero configuration against the hosted Firecrawl v2 endpoint.
+Caveats:
 
 - **Monthly credit quota** - the keyless tier is free but capped (~1000 credits per
-  IP per month; search costs 2 credits per 10 results). When exhausted, Firecrawl
+  IP per month; search costs 2 credits per 10 results, and native
+  extract/crawl/map consume the same shared pool). When exhausted, Firecrawl
   answers HTTP 402 and the plugin surfaces `WEB_PROVIDER_ERROR` naming the quota and
   `FIRECRAWL_API_KEY`.
 - **Key upgrades the quota** - store an `fc-...` key in `FIRECRAWL_API_KEY`
   (credentials service / Models page) to lift the cap; a present key is sent as a
   Bearer token, while any non-empty non-`fc-` value makes the adapter unavailable
   (treated as a mis-stored ref).
-- **Search ONLY by design** - extract/crawl/map stay on the composite tier so the
-  shared monthly credits are spent on search alone, and those tools keep working
-  (quota-free) even after the credit pool runs out.
+- **Native ops** - search/scrape/crawl/map are served by Firecrawl. When a native
+  call fails, `compositeFallback` can retry through the zero-quota local composite
+  tier (if enabled), so extract/crawl/map can still recover after the shared credit
+  pool runs out.
 
 
 ## Failover chain
@@ -278,11 +282,13 @@ With `fallbacks` set, the provider wraps `[primary, ...fallbacks]` into one
 
 ## Verified
 
-- **102 vitest tests** (`tests/`): router ladder, capability pinning (tavily: all five
-  ops; deepseek/firecrawl: search-only), composite fixtures (sitemap parse, HTML conversion,
-  BFS cycle safety, per-page failure isolation), Tavily mappings for every response
-  shape, Firecrawl keyless search (mocked fetch: mapping, auth-header rules, 402/429
-  quota/rate-limit errors), ChainAdapter failover (switchable vs non-switchable,
+- **115 vitest tests** (`tests/`): router ladder, capability pinning (tavily: all five
+  ops; deepseek: search-only; firecrawl: search/extract/crawl/map), local fetch provider
+  (fallback availability + HTML/text body mapping), composite fixtures (sitemap parse,
+  HTML conversion, BFS cycle safety, per-page failure isolation), Tavily mappings for
+  every response shape, Firecrawl keyless search/scrape/crawl/map (mocked SDK: mapping,
+  auth-header rules, 402/429 quota/rate-limit errors),
+  ChainAdapter failover (switchable vs non-switchable,
   native-capability skipping, D3 validation), fake-clock cooldown schedule
   (exponential backoff, reset-on-success, all-cooling last-resort), multi-key
   rotation (first key 401s -> second serves), loud-degradation trails (warnings +
