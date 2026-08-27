@@ -1,28 +1,20 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { WebFetchProvider } from "@deepseek-ai/dsh-web";
+import type { WebFetchProvider, WebFetchResult } from "@deepseek-ai/dsh-web";
 import { makeLocalFetchProvider } from "../src/core/localFetch.js";
 
 const fetchMock = vi.hoisted(() => vi.fn());
 
 beforeEach(() => {
-	vi.stubGlobal("fetch", fetchMock);
+	vi.clearAllMocks();
 });
 
 afterEach(() => {
-	vi.unstubAllGlobals();
 	vi.clearAllMocks();
 });
 
 let providers: WebFetchProvider[] = [];
 
-const local = () => makeLocalFetchProvider(() => providers);
-
-const fakeResponse = (status: number, url: string, contentType: string, content: string) => ({
-	status,
-	url,
-	headers: new Headers({ "content-type": contentType }),
-	text: async () => content,
-});
+const local = () => makeLocalFetchProvider(() => providers, fetchMock as (url: string, signal?: AbortSignal) => Promise<WebFetchResult>);
 
 beforeEach(() => {
 	providers = [];
@@ -51,20 +43,15 @@ describe("availability", () => {
 });
 
 describe("fetch", () => {
-	it("maps an HTML response to html body kind", async () => {
-		fetchMock.mockResolvedValue(fakeResponse(200, "https://example.com/final", "text/html; charset=utf-8", "<html><body>hi</body></html>"));
-		const result = await local().fetch({ url: "https://example.com/start" });
-		expect(result).toEqual({
+	it("passes the request through to the injected fetch implementation", async () => {
+		const result: WebFetchResult = {
 			url: "https://example.com/final",
 			statusCode: 200,
 			body: { kind: "html", content: "<html><body>hi</body></html>" },
 			truncated: false,
-		});
-	});
-
-	it("maps a non-HTML response to text body kind", async () => {
-		fetchMock.mockResolvedValue(fakeResponse(200, "https://example.com/robots.txt", "text/plain", "plain"));
-		const result = await local().fetch({ url: "https://example.com/robots.txt" });
-		expect(result.body).toEqual({ kind: "text", content: "plain" });
+		};
+		fetchMock.mockResolvedValue(result);
+		await expect(local().fetch({ url: "https://example.com/start" })).resolves.toEqual(result);
+		expect(fetchMock).toHaveBeenCalledWith("https://example.com/start", undefined);
 	});
 });

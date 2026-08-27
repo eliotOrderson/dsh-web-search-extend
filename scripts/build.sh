@@ -13,7 +13,7 @@ ESBUILD="/home/hydenix/Workspace/deepseek-harness-plugin/dsh-agent-bridge/node_m
 EXTERNAL="--external:@deepseek-ai/dsh-agent --external:@deepseek-ai/dsh-credentials --external:@deepseek-ai/dsh-invariants --external:@deepseek-ai/dsh-launch-environment --external:@deepseek-ai/dsh-session --external:@deepseek-ai/dsh-settings --external:@deepseek-ai/dsh-tools --external:@deepseek-ai/dsh-web --external:@deepseek-ai/cordis --external:@deepseek-ai/schemastery"
 # CJS/runtime-dependent packages: cannot bundle into ESM cleanly (esbuild CJS
 # interop or dynamic require of node builtins), so they stay external.
-EXTERNAL="$EXTERNAL --external:@tavily/core --external:firecrawl --external:turndown --external:@joplin/turndown-plugin-gfm --external:domino"
+EXTERNAL="$EXTERNAL --external:@tavily/core --external:firecrawl --external:turndown --external:@joplin/turndown-plugin-gfm --external:domino --external:jsdom --external:@mozilla/readability --external:undici --external:ipaddr.js"
 
 echo "=== Bundling host → lib/index.js ==="
 "$ESBUILD" src/index.ts --bundle --format=esm --platform=node --target=node18 --outfile=lib/index.js --minify --tree-shaking --log-level=info $EXTERNAL

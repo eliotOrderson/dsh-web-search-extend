@@ -6,6 +6,8 @@
  */
 import TurndownService from "turndown";
 import { gfm } from "@joplin/turndown-plugin-gfm";
+import { JSDOM } from "jsdom";
+import { Readability } from "@mozilla/readability";
 import { createDocument } from "domino";
 
 const turndown = new TurndownService({
@@ -110,12 +112,24 @@ function exceedsConversionDepth(html: string): boolean {
 	return false;
 }
 
+/** Extract the main article body with Mozilla Readability; undefined when it cannot. */
+function readableContent(html: string): string | undefined {
+	try {
+		const dom = new JSDOM(html);
+		const article = new Readability(dom.window.document).parse();
+		return article?.content ?? undefined;
+	} catch {
+		return undefined;
+	}
+}
+
 export function htmlToMarkdown(html: string): string {
 	if (exceedsConversionDepth(html)) return html.trim();
+	const source = readableContent(html) ?? html;
 	try {
-		return turndown.turndown(html).trim();
+		return turndown.turndown(source).trim();
 	} catch {
-		return html.trim();
+		return source.trim();
 	}
 }
 
