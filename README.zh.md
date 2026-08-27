@@ -49,11 +49,12 @@ src/
     capabilities.ts   # capabilitiesOf()：能力由方法存在性推导
     router.ts         # execute()：native → composite → WEB_OP_UNSUPPORTED 阶梯
     composites.ts     # 通用 extract/map/crawl（注入 FetchLike，纯算法）
-    html.ts           # 朴素 HTML → text/markdown 转换（兼容下限）
+    html.ts           # HTML → text/markdown 转换（Mozilla Readability + turndown）
     registry.ts       # AdapterRegistry（可插拔机制）
     abort.ts          # 取消处理（横切）
     errors.ts         # WebError 分类（横切）
     localFetch.ts     # 默认本地 web_fetch provider（兜底，让位给任何可用 provider）
+    secureFetch.ts    # SSRF/DNS-rebinding 安全的本地 fetch（undici + ipaddr.js）
   adapters/           # 适配层（每后端一文件，可插拔）
   tools/              # 模型面工具（extract/crawl/map/research）+ 共享格式化器
   ui/
@@ -112,7 +113,6 @@ WebAdapter 的文件；core 永远不改。
 | `apiKeyEnv` | `FIRECRAWL_API_KEY` | 顶层凭据引用：设置卡的 badge 与保存目标。当其值为受管 ref（`TAVILY_API_KEY` / `DEEPSEEK_API_KEY` / `FIRECRAWL_API_KEY`）时，`apply()` 会在 provider 变更时自动同步为当前 provider 的默认 ref，使 badge 跟随 provider；任意自定义 ref 不覆盖。 |
 | `baseURL` | 按 provider | 端点主机根；回退到适配器 env（`DEEPSEEK_SEARCH_BASE_URL` / `TAVILY_BASE_URL` / `FIRECRAWL_BASE_URL`）。 |
 | `fetchBackend` | `"local"` | `local`：不动现有 fetch provider；同时注册 `web-search-extend-local` 兜底，仅在没有其他可用 fetch provider 时生效（保证禁用官方插件后 composite/web_fetch 仍可用）。`"adapter"`：额外注册 `web-search-extend` WebFetchProvider 提供单 URL extract（要求当前适配器有**原生** extract，如 tavily/firecrawl；用 `fetchProvider` / `DSH_WEB_FETCH_PROVIDER` 选择）。 |
-| `compositeFallback` | `true` | 当前适配器原生支持 extract/crawl/map 但调用失败时，改用零配额的本地 composite 层重试，并在结果上附 warning；`false` 则直接抛出失败。 |
 | `fallbacks` | `[]` | 在主适配器发生可切换失败（后端 / 配额 / 限流 / 缺凭据）后依次尝试的有序 adapter id 列表。未知 id、重复项与自引用会以可见错误拒绝该次设置写入；provider 会把 `[primary, ...fallbacks]` 包装为一个 ChainAdapter 运行。 |
 | `tools.extract` | `true` | 注册 `web_extract`。 |
 | `tools.crawl` | `true` | 注册 `web_crawl`。 |
@@ -153,6 +153,68 @@ WebAdapter 的文件；core 永远不改。
 
 key ref 按 provider 各自解析，**无跨 provider 回退**（config.apiKeyEnv → 子节
 apiKeyEnv → adapter 默认；badge 机制与受管 ref 自动同步见 AGENTS.md）。
+
+
+## 配置指南
+
+### 每个配置放在哪里
+
+| 配置 | 存放位置 | 说明 |
+| :--- | :--- | :--- |
+| `provider`、`routeMode`、`fetchBackend`、`fallbacks`、`tools`、`limits`、各 provider 专属参数 | 插件设置命名空间 `web-search-deepseek` | 可写在 `cordis.patch.yml` 的插件 `config` 作为默认值，也可被运行时 DSH settings 覆盖。 |
+| `fetchProvider` | DSH 全局 `ctx.web` 配置 | **不是插件配置**。设置 `fetchProvider: web-search-extend` 或环境变量 `DSH_WEB_FETCH_PROVIDER=web-search-extend`。 |
+| `searchProvider` | DSH 全局 `ctx.web` 配置 | 一般不用配；本插件已注册官方 `deepseek-official` 搜索 provider。 |
+
+### `provider` 与 `routeMode`
+
+- `provider` 选择后端：`firecrawl-keyless` / `tavily` / `deepseek`。
+- `routeMode`：
+  - `provider-first`（默认）：先走 provider 原生调用；失败后回退到本地 composite。这个回退**始终开启，没有 `compositeFallback` 开关**。
+  - `local-only`：完全跳过 provider，直接走本地 composite。
+
+### `web_fetch` 与 `fetchBackend`
+
+`fetchBackend` 控制**本插件注册哪些 fetch provider**，它**不影响** Firecrawl/Tavily 原生 `search/scrape/crawl/map`。
+
+- `local`（默认）：
+  - 不碰 DSH 内置 `web_fetch` provider。
+  - 注册 `web-search-extend-local` 兜底，它会让位给任何其他可用 provider。
+  - 实际效果：内置可用时用内置；只有没有任何可用 provider 时才轮到我们。
+- `adapter`：
+  - 额外注册 `web-search-extend`，它通过当前 adapter 的原生 `extract`（Firecrawl/Tavily）提供单 URL fetch。
+  - 必须再用 `fetchProvider: web-search-extend`（或 `DSH_WEB_FETCH_PROVIDER`）选中它。
+
+### `fetchProvider`（DSH 全局配置，不是插件配置）
+
+- `fetchProvider` 是 DSH web 接缝的 provider 选择配置。
+- 如果存在多个可用 fetch provider 且没有显式选择，DSH 会报 `WEB_PROVIDER_AMBIGUOUS`。
+- 示例：
+  ```yaml
+  # 插件默认值（cordis.patch.yml）
+  config:
+    fetchBackend: adapter
+
+  # DSH 全局配置或环境变量
+  fetchProvider: web-search-extend
+  # DSH_WEB_FETCH_PROVIDER=web-search-extend
+  ```
+
+### 配置组合速查
+
+| 目标 | `provider` | `routeMode` | `fetchBackend` | `fetchProvider` |
+| :--- | :--- | :--- | :--- | :--- |
+| search/extract/crawl/map 全走 Firecrawl | `firecrawl-keyless` | `provider-first` | `local` | 不需要 |
+| `web_fetch` 也走 Firecrawl/Tavily | `firecrawl-keyless` 或 `tavily` | `provider-first` | `adapter` | `web-search-extend` |
+| 全走本地、避免云端/隐私 | 任意 | `local-only` | `local` | 不需要 |
+| DSH 内置 fetch 缺失时仍可用 | 任意 | 任意 | `local` | 不需要 |
+
+### 注意事项
+
+- `compositeFallback` **不是真实配置项**。早期文档写过它，但代码里没有；provider-first 回退本地 composite 始终开启。
+- `routeMode: local-only` 仍可能打到 provider：如果 `fetchProvider` 被设为 `web-search-extend`，本地 composite 是通过 `ctx.web.fetch` 抓页面的，而这个 fetch seam 可能被路由到 Firecrawl/Tavily。
+- Firecrawl 原生 `search/scrape/crawl/map` 完全不会读 `fetchBackend`。
+- 本地 composite 的 `web_map` 只能映射有 sitemap 的站点；无 sitemap 站点需要原生 Firecrawl/Tavily `map`。
+- 本地 fetch 兜底已经由 `secureFetch`（undici + ipaddr.js SSRF/DNS-rebinding 防护）加固，并使用 Mozilla Readability 做正文提取。
 
 
 ## 模型面工具
@@ -196,9 +258,21 @@ search、extract、crawl、map。注意：
 - **配置 key 可提升配额** —— 在 `FIRECRAWL_API_KEY`（凭据服务 / Models 页）存入
   `fc-...` key 即可解除上限；已解析的 key 会以 Bearer token 发送，而非空且不以
   `fc-` 开头的值会让适配器不可用（视为存错 ref）。
-- **原生操作** —— search/scrape/crawl/map 由 Firecrawl 原生服务；当原生调用失败时，
-  若启用 `compositeFallback`，可回退到零配额的本地 composite 层，因此共享配额耗尽后
-  extract/crawl/map 仍有可能通过回退继续恢复。
+- **原生操作** —— search/scrape/crawl/map 由 Firecrawl 原生服务；原生调用失败时，
+  provider-first 会自动回退到零配额的本地 composite 层，这个回退始终开启，没有单独开关。
+
+
+## 安全本地 fetch
+
+本地兜底 provider（`web-search-extend-local`）基于 `secureFetch`：
+- 用 undici + 自定义 DNS lookup + ipaddr.js 拦截私网/保留/link-local/multicast/云 metadata 地址；
+- 拒绝非 http(s) 与内嵌凭据的 URL；
+- 通过 undici 自定义 lookup 固定已校验地址，防 DNS rebinding；
+- 限制响应大小。
+
+它仍会主动让位给任何其他可用 fetch provider，所以 DSH 内置 `web_fetch` 可用时
+依然是内置优先。页面抽取先用 Mozilla Readability 再转 Turndown，保留正文而不是
+整页样板内容。
 
 
 ## 故障转移链
@@ -250,11 +324,12 @@ search、extract、crawl、map。注意：
 
 ## 已验证
 
-- **115 个 vitest 测试**（`tests/`）：路由阶梯、能力 pinning（tavily 五操作；
+- **120 个 vitest 测试**（`tests/`）：路由阶梯、能力 pinning（tavily 五操作；
   deepseek 仅 search；firecrawl search/extract/crawl/map）、本地 fetch provider（兜底
-  可用性 + HTML/text body 映射）、composite fixtures（sitemap 解析、HTML 转换、BFS
-  环路安全、单页失败隔离）、Tavily 全部响应形状映射、Firecrawl keyless
-  search/scrape/crawl/map（mock SDK：映射、鉴权头规则、402/429 配额/限流错误）、
+  可用性 + 注入 fetch）、secure fetch（私网 IP/DNS 拦截、协议/凭据防护）、composite
+  fixtures（sitemap 解析、HTML 转换、BFS 环路安全、单页失败隔离）、Tavily 全部响应
+  形状映射、Firecrawl keyless search/scrape/crawl/map（mock SDK：映射、鉴权头规则、
+  402/429 配额/限流错误）、
   ChainAdapter 故障转移（可切换 vs 不可切换、原生能力跳过、
   D3 校验）、假时钟 cooldown 调度（指数退避、成功重置、全冷却最后手段）、多 key
   轮换（首个 key 401 → 第二个 key 服务）、降级轨迹（降级结果/错误携带 warnings +

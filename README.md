@@ -62,11 +62,12 @@ src/
     capabilities.ts   # capabilitiesOf(): capability derived from method presence
     router.ts         # execute(): native -> composite -> WEB_OP_UNSUPPORTED ladder
     composites.ts     # universal extract/map/crawl over an injected FetchLike
-    html.ts           # naive HTML -> text/markdown converter (compat floor)
+    html.ts           # HTML -> text/markdown converter (Mozilla Readability + turndown)
     registry.ts       # AdapterRegistry (the pluggability mechanism)
     abort.ts          # cancellation handling (cross-cutting)
     errors.ts         # WebError taxonomy (cross-cutting)
     localFetch.ts     # default local web_fetch provider (fallback, yields to any usable provider)
+    secureFetch.ts    # SSRF/DNS-rebinding-safe local fetch (undici + ipaddr.js)
   adapters/           # adapter layer (one file per backend — pluggable)
   tools/              # model-facing tools (extract/crawl/map/research) + formatters
   ui/
@@ -127,7 +128,6 @@ usable on every provider.
 | `apiKeyEnv` | `FIRECRAWL_API_KEY` | Top-level credential ref: the settings card badge and save target. When it holds a managed ref (`TAVILY_API_KEY` / `DEEPSEEK_API_KEY` / `FIRECRAWL_API_KEY`), `apply()` re-syncs it to the active provider's default on provider change so the badge follows the provider. An arbitrary custom ref is respected untouched. |
 | `baseURL` | per-provider | Endpoint host root; falls back to the adapter env (`DEEPSEEK_SEARCH_BASE_URL` / `TAVILY_BASE_URL` / `FIRECRAWL_BASE_URL`). |
 | `fetchBackend` | `"local"` | `local`: existing fetch provider untouched; a `web-search-extend-local` fallback is registered and becomes usable only when no other fetch provider is available (keeps composite/web_fetch working after the official plugin is disabled). `"adapter"`: additionally registers a `web-search-extend` WebFetchProvider serving single-URL extract (requires NATIVE extract on the active adapter, e.g. tavily/firecrawl; select via `fetchProvider` / `DSH_WEB_FETCH_PROVIDER`). |
-| `compositeFallback` | `true` | When the active adapter has a native extract/crawl/map but the call fails, retry through the zero-quota local composite tier and mark the result with a warning. `false` surfaces the failure as-is. |
 | `fallbacks` | `[]` | Ordered adapter ids tried after the primary when it fails switchably (backend / quota / rate-limit / missing credential). Unknown ids, duplicates, and self-reference reject the settings write with a visible error; the provider then runs `[primary, ...fallbacks]` as one ChainAdapter. |
 | `tools.extract` | `true` | Register `web_extract`. |
 | `tools.crawl` | `true` | Register `web_crawl`. |
@@ -169,6 +169,68 @@ usable on every provider.
 Key refs are resolved per provider with NO cross-provider fallback (config.apiKeyEnv
 then provider-subsection apiKeyEnv then adapter default; see AGENTS.md for the badge
 mechanism and the managed-ref auto-sync).
+
+
+## Configuration guide
+
+### Where each setting lives
+
+| Setting | Lives in | Notes |
+| :--- | :--- | :--- |
+| `provider`, `routeMode`, `fetchBackend`, `fallbacks`, `tools`, `limits`, per-provider knobs | Plugin settings namespace `web-search-deepseek` | Can be set as plugin defaults in `cordis.patch.yml` `config`, or overridden by runtime DSH settings. |
+| `fetchProvider` | DSH global `ctx.web` config | Not a plugin config. Set `fetchProvider: web-search-extend` or env `DSH_WEB_FETCH_PROVIDER=web-search-extend`. |
+| `searchProvider` | DSH global `ctx.web` config | Usually not needed; this plugin registers the official `deepseek-official` search provider. |
+
+### `provider` and `routeMode`
+
+- `provider` selects the backend: `firecrawl-keyless` / `tavily` / `deepseek`.
+- `routeMode`:
+  - `provider-first` (default): try the provider's native call; if it fails, retry through the local composite tier. This fallback is always on — there is no `compositeFallback` toggle.
+  - `local-only`: skip the provider entirely and go straight to the local composite tier.
+
+### `web_fetch` and `fetchBackend`
+
+`fetchBackend` controls **which fetch providers this plugin registers**. It does **not** affect Firecrawl/Tavily native `search/scrape/crawl/map` calls.
+
+- `local` (default):
+  - Keeps DSH's built-in `web_fetch` provider untouched.
+  - Registers `web-search-extend-local` as a fallback that yields to any other usable provider.
+  - Net effect: built-in wins when available; our fallback only appears when nothing else can serve fetch.
+- `adapter`:
+  - Additionally registers `web-search-extend`, which serves single-URL fetch through the active adapter's native `extract` (Firecrawl/Tavily).
+  - Requires `fetchProvider: web-search-extend` (or `DSH_WEB_FETCH_PROVIDER`) to be selected.
+
+### `fetchProvider` (DSH global, not plugin config)
+
+- `fetchProvider` is the DSH web seam's provider selection.
+- If multiple usable fetch providers exist and none is selected, DSH throws `WEB_PROVIDER_AMBIGUOUS`.
+- Example:
+  ```yaml
+  # plugin defaults (cordis.patch.yml)
+  config:
+    fetchBackend: adapter
+
+  # DSH global config or environment
+  fetchProvider: web-search-extend
+  # DSH_WEB_FETCH_PROVIDER=web-search-extend
+  ```
+
+### Configuration matrix
+
+| Goal | `provider` | `routeMode` | `fetchBackend` | `fetchProvider` |
+| :--- | :--- | :--- | :--- | :--- |
+| All search/extract/crawl/map via Firecrawl | `firecrawl-keyless` | `provider-first` | `local` | not needed |
+| `web_fetch` also via Firecrawl/Tavily | `firecrawl-keyless` or `tavily` | `provider-first` | `adapter` | `web-search-extend` |
+| All local, avoid cloud/privacy | any | `local-only` | `local` | not needed |
+| Keep working when DSH built-in fetch is missing | any | any | `local` | not needed |
+
+### Caveats
+
+- `compositeFallback` is **not a real setting**. Earlier docs listed it, but the code has no such config; provider-first fallback to local composite is always on.
+- `routeMode: local-only` can still hit a provider if `fetchProvider` is set to `web-search-extend`, because local composite fetches pages through `ctx.web.fetch`, which can be routed to Firecrawl/Tavily.
+- Firecrawl native `search/scrape/crawl/map` never read `fetchBackend`.
+- The local composite `web_map` only maps sites that expose a sitemap; sitemap-less sites need native Firecrawl/Tavily `map`.
+- The local fetch fallback is secured by `secureFetch` (undici + ipaddr.js SSRF/DNS-rebinding protection) and uses Mozilla Readability for page extraction.
 
 
 ## Model-facing tools
@@ -220,9 +282,23 @@ Caveats:
   Bearer token, while any non-empty non-`fc-` value makes the adapter unavailable
   (treated as a mis-stored ref).
 - **Native ops** - search/scrape/crawl/map are served by Firecrawl. When a native
-  call fails, `compositeFallback` can retry through the zero-quota local composite
-  tier (if enabled), so extract/crawl/map can still recover after the shared credit
-  pool runs out.
+  call fails, provider-first routing automatically retries through the zero-quota
+  local composite tier; this fallback is always on and has no config toggle.
+
+
+## Secure local fetch
+
+The local fallback provider (`web-search-extend-local`) sits on `secureFetch`,
+which uses undici with a custom DNS lookup and ipaddr.js to:
+
+- block private/reserved/link-local/multicast/cloud-metadata addresses;
+- reject non-http(s) URLs and embedded credentials;
+- pin the validated address through undici's custom lookup, closing DNS-rebinding;
+- cap response size.
+
+It yields to any other usable fetch provider, so DSH's built-in `web_fetch`
+still wins when present. Page extraction uses Mozilla Readability before
+Turndown to keep the main article instead of boilerplate.
 
 
 ## Failover chain
@@ -282,12 +358,13 @@ With `fallbacks` set, the provider wraps `[primary, ...fallbacks]` into one
 
 ## Verified
 
-- **115 vitest tests** (`tests/`): router ladder, capability pinning (tavily: all five
+- **120 vitest tests** (`tests/`): router ladder, capability pinning (tavily: all five
   ops; deepseek: search-only; firecrawl: search/extract/crawl/map), local fetch provider
-  (fallback availability + HTML/text body mapping), composite fixtures (sitemap parse,
-  HTML conversion, BFS cycle safety, per-page failure isolation), Tavily mappings for
-  every response shape, Firecrawl keyless search/scrape/crawl/map (mocked SDK: mapping,
-  auth-header rules, 402/429 quota/rate-limit errors),
+  (fallback availability + injected fetch), secure fetch (private-IP/DNS blocking,
+  protocol/credential guards), composite fixtures (sitemap parse, HTML conversion, BFS
+  cycle safety, per-page failure isolation), Tavily mappings for every response shape,
+  Firecrawl keyless search/scrape/crawl/map (mocked SDK: mapping, auth-header rules,
+  402/429 quota/rate-limit errors),
   ChainAdapter failover (switchable vs non-switchable,
   native-capability skipping, D3 validation), fake-clock cooldown schedule
   (exponential backoff, reset-on-success, all-cooling last-resort), multi-key
