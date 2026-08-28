@@ -18,7 +18,8 @@ import { credentialRef } from "@deepseek-ai/dsh-credentials";
 import { installSettingsSection, settingsNamespace } from "@deepseek-ai/dsh-settings";
 import { launchEnvironmentOf } from "@deepseek-ai/dsh-launch-environment";
 import { WebError, type WebFetchProvider } from "@deepseek-ai/dsh-web";
-import { Config, TAVILY_API_KEY_ENV, DEEPSEEK_API_KEY_ENV, FIRECRAWL_API_KEY_ENV, type ConfigType } from "./config.js";
+import { Config, type ConfigType } from "./config.js";
+import { PROVIDER_DEFAULT_API_KEY_ENVS } from "./provider-refs.js";
 import { capabilitiesOf } from "./core/capabilities.js";
 import { ExtensibleWebSearchProvider, resolveExecution, type ResolvedOptions } from "./core/provider.js";
 import { execute } from "./core/router.js";
@@ -154,12 +155,6 @@ function makeFetchProvider(ctx: Context, resolveOpts: () => ResolvedOptions): We
 }
 
 /** Register the replacement search provider with `ctx.web`. */
-/** Default key ref per provider; the settings card badge reads the top-level apiKeyEnv. */
-const PROVIDER_DEFAULT_API_KEY_ENVS: Record<string, string> = {
-	tavily: TAVILY_API_KEY_ENV,
-	deepseek: DEEPSEEK_API_KEY_ENV,
-	"firecrawl-keyless": FIRECRAWL_API_KEY_ENV,
-};
 
 function apply(ctx: Context, config: ConfigType): void {
 	const registry = createDefaultRegistry();

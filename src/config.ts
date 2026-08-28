@@ -10,9 +10,17 @@
  * @module dsh-web-search-extend/config
  */
 import z from "@deepseek-ai/schemastery";
+import {
+	DEEPSEEK_DEFAULT_API_VERSION,
+	DEEPSEEK_DEFAULT_MAX_TOKENS,
+	DEEPSEEK_DEFAULT_MAX_USES,
+	DEEPSEEK_DEFAULT_MODEL,
+} from "@deepseek-ai/dsh-web-search-deepseek";
+import { FIRECRAWL_API_KEY_ENV, TAVILY_API_KEY_ENV, DEEPSEEK_API_KEY_ENV } from "./provider-refs.js";
+
+export { FIRECRAWL_API_KEY_ENV, TAVILY_API_KEY_ENV, DEEPSEEK_API_KEY_ENV } from "./provider-refs.js";
 
 /** Firecrawl defaults + env names. */
-export const FIRECRAWL_API_KEY_ENV = "FIRECRAWL_API_KEY";
 export const FIRECRAWL_BASE_URL_ENV = "FIRECRAWL_BASE_URL";
 export const FIRECRAWL_DEFAULT_BASE_URL = "https://api.firecrawl.dev";
 
@@ -22,18 +30,19 @@ export const DEFAULT_PROVIDER = "firecrawl-keyless";
 export const DEFAULT_API_KEY_ENV = FIRECRAWL_API_KEY_ENV;
 
 /** Tavily defaults + env names. */
-export const TAVILY_API_KEY_ENV = "TAVILY_API_KEY";
 export const TAVILY_BASE_URL_ENV = "TAVILY_BASE_URL";
 export const TAVILY_DEFAULT_BASE_URL = "https://api.tavily.com";
 
-/** DeepSeek defaults + env names (mirrors the official provider). */
-export const DEEPSEEK_API_KEY_ENV = "DEEPSEEK_API_KEY";
+/** DeepSeek defaults follow the official package exports so the takeover tracks its updates. */
+export {
+	DEEPSEEK_DEFAULT_API_VERSION,
+	DEEPSEEK_DEFAULT_BASE_URL,
+	DEEPSEEK_DEFAULT_MAX_TOKENS,
+	DEEPSEEK_DEFAULT_MAX_USES,
+	DEEPSEEK_DEFAULT_MODEL,
+} from "@deepseek-ai/dsh-web-search-deepseek";
+/** Not exported by the official package (used internally there); kept local. */
 export const DEEPSEEK_SEARCH_BASE_URL_ENV = "DEEPSEEK_SEARCH_BASE_URL";
-export const DEEPSEEK_DEFAULT_BASE_URL = "https://api.deepseek.com/anthropic/v1";
-export const DEEPSEEK_DEFAULT_MODEL = "deepseek-v4-flash";
-export const DEEPSEEK_DEFAULT_API_VERSION = "2023-06-01";
-export const DEEPSEEK_DEFAULT_MAX_TOKENS = 4096;
-export const DEEPSEEK_DEFAULT_MAX_USES = 5;
 
 /**
  * Plugin config. `provider` selects which adapter runs; `apiKey`/`apiKeyEnv`/

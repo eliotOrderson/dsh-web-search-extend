@@ -1,4 +1,6 @@
 node_modules/
 *.tsbuildinfo
+*.log
+.npm-cache
 TASK.md
 AGENTS.md

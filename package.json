@@ -51,9 +51,14 @@
     "@deepseek-ai/dsh-settings": ">=0.0.1-rc <2",
     "@deepseek-ai/dsh-tools": ">=0.0.1-rc <2",
     "@deepseek-ai/dsh-web": ">=0.0.1-rc <2",
+    "@deepseek-ai/dsh-web-search-deepseek": ">=0.1.1-rc <2",
     "@deepseek-ai/schemastery": "^3.18.1"
   },
   "dependencies": {
+    "@deepseek-ai/dsh-client-locale": "^0.1.1-rc.2",
+    "@deepseek-ai/dsh-client-runtime": "^0.1.1-rc.2",
+    "@deepseek-ai/dsh-client-ui-primitives": "^0.1.1-rc.2",
+    "@deepseek-ai/dsh-client-ui-slots": "^0.1.1-rc.2",
     "@joplin/turndown-plugin-gfm": "^1.0.67",
     "@mozilla/readability": "^0.6.0",
     "@tavily/core": "^0.7.7",
@@ -61,6 +66,7 @@
     "firecrawl": "^4.35.0",
     "ipaddr.js": "^2.5.0",
     "jsdom": "^30.0.1",
+    "react": "^18.2.0",
     "turndown": "^7.2.4",
     "undici": "^8.10.0"
   },
@@ -79,9 +85,11 @@
     "@deepseek-ai/dsh-timeout": "^0.0.1-rc.1",
     "@deepseek-ai/dsh-tools": ">=0.0.1-rc <2",
     "@deepseek-ai/dsh-web": ">=0.0.1-rc <2",
+    "@deepseek-ai/dsh-web-search-deepseek": "^0.1.1-rc.2",
     "@deepseek-ai/schemastery": "^3.18.1",
     "@types/jsdom": "^30.0.0",
     "@types/node": "^22.20.1",
+    "@types/react": "^18.2.0",
     "@types/turndown": "^5.0.6",
     "typescript": "^5.9.3"
   }
