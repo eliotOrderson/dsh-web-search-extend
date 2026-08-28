@@ -72,7 +72,14 @@ src/
     tavily.ts
     firecrawl.ts
   tools/              # 模型面工具 + 格式化器
-  ui/client.js        # 设置卡注入器，构建进 lib/client.js
+  ui/
+    client.js         # 设置卡模块加载入口，构建进 lib/client.js
+    config.js         # provider/字段规格与 DOM 标记（DRIFT-RULE 源）
+    controls.js       # provider/route/param 控件构建
+    dom.js            # 卡片查找与字段外壳/hint DOM 辅助
+    i18n.js           # 语言字典与翻译器
+    injection.js      # 卡片注入、同步、观察器、清理
+    settings.js       # settings-scope 访问封装
 ```
 
 新增 provider = 在 `adapters/<vendor>.ts` 实现 `SearchAdapter` 并在 `createDefaultRegistry()` 注册。

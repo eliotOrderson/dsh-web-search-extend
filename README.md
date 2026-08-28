@@ -72,7 +72,14 @@ src/
     tavily.ts
     firecrawl.ts
   tools/              # model-facing tools + formatters
-  ui/client.js        # settings-card injector, bundled into lib/client.js
+  ui/
+    client.js         # settings-card module loader entry, bundled into lib/client.js
+    config.js         # provider/field specs and DOM markers (DRIFT-RULE source)
+    controls.js       # provider/route/param field builders
+    dom.js            # card lookup and field shell/hint DOM helpers
+    i18n.js           # locale dictionary and translator
+    injection.js      # card injection, sync, observer, teardown
+    settings.js       # settings-scope access wrapper
 ```
 
 Adding a provider = implement `SearchAdapter` in `adapters/<vendor>.ts` and register it in `createDefaultRegistry()`.
