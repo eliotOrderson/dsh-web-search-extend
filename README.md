@@ -28,31 +28,27 @@ It is layered and modular (contract / config / core / adapter), and the adapter 
 **pluggable — not locked to Tavily**: Firecrawl (keyless out of the box), DeepSeek (official
 backend, preserved), and Tavily (**keyless-capable**) ship out of the box.
 
-## Install (official `dsh plugin add`, replace the official)
+## Install
 
 This package is a **standard DSH bundle plugin**: it declares `dsh.bundle` → `./cordis.patch.yml`,
-so the official `dsh plugin` CLI installs it as a profile layer (no super-injector needed).
-No manual profile-overlay edit is required: the package's OWN bundle layer inserts the
-`dsh-web-search-extend` loader entry AND carries the trailing `- id: web-search-deepseek /
-disabled: true` marker that turns off the official plugin — that bundled entry is the
-authoritative takeover mechanism (a leftover manual disable from older setups is redundant
-but harmless).
+so the official `dsh plugin` CLI installs it as a profile layer. No manual profile-overlay edit is
+required: the package's OWN bundle layer inserts the `dsh-web-search-extend` loader entry AND
+carries the trailing `- id: web-search-deepseek / disabled: true` marker that turns off the
+official plugin — that bundled entry is the authoritative takeover mechanism (a leftover manual
+disable from older setups is redundant but harmless).
 
-1. **Install normally:**
+```bash
+dsh plugin --profile web add github:eliotOrderson/dsh-web-search-extend#v0.2.0
+```
 
-   ```bash
-   dsh plugin --profile web add /path/to/dsh-web-search-extend
-   ```
+The `#` fragment is a pnpm git ref: tag, branch, commit SHA, or `#semver:<range>`. Prebuilt
+`lib/` artifacts are committed, so installation needs no build step and no pnpm `allowBuilds`
+entry. After moving a tag, force re-resolution with
+`dsh plugin --profile web update dsh-web-search-extend`.
 
-   This adds the package to profile dependencies and to `dsh.profile.bundles`; the package's own
-   `cordis.patch.yml` then inserts the `web-search-extend` loader entry and disables the official
-   `web-search-deepseek` entry at boot.
-
-2. **Restart DSH** (or reload the profile). The plugin then loads as the `web-search-extend`
-   entry, registers the official Settings namespace (`web-search-deepseek`) and provider slot
-   (`deepseek-official`), and the agent's existing `web_search` tool routes through it.
-
-The super-injector is only used for live development; production setup is the normal CLI install.
+Restart DSH (or reload the profile). The plugin then loads as the `dsh-web-search-extend` entry,
+registers the official Settings namespace (`web-search-deepseek`) and provider slot
+(`deepseek-official`), and the agent's existing `web_search` tool routes through it.
 
 Note: the official `@deepseek-ai/dsh-web-search-deepseek` package remains a **runtime peer**.
 Its loader entry is disabled, but this plugin imports the official DeepSeek factory defaults
@@ -147,14 +143,14 @@ usable on every provider.
 | `tools.extract` | `true` | Register `web_extract`. |
 | `tools.crawl` | `true` | Register `web_crawl`. |
 | `tools.map` | `true` | Register `web_map`. |
-| `tools.research` | `false` | Register `web_research` + `web_research_status` (credits-heavy, off by default). |
+| `tools.research` | `true` | Register `web_research` + `web_research_status` (credits-heavy). |
 | `tools.doctor` | `true` | Register `web_doctor` (offline diagnostics; zero network/quota). |
 | `limits.extractMaxUrls` | `10` | Max URLs per web_extract call. |
 | `limits.crawlMaxPages` | `10` | Max pages per web_crawl call. |
 | `limits.mapMaxUrls` | `100` | Max URLs per web_map call. |
 | `limits.perPageChars` | `20000` | Per-page render cap for extracted/crawled content. |
-| `deepseek.model` | `deepseek-v4-flash` | Official DeepSeek model id. |
-| `deepseek.apiVersion` | `2023-06-01` | Messages API version. |
+| `deepseek.model` | inherited from `@deepseek-ai/dsh-web-search-deepseek` | Official DeepSeek model id. |
+| `deepseek.apiVersion` | inherited from `@deepseek-ai/dsh-web-search-deepseek` | Messages API version. |
 | `deepseek.maxTokens` | `4096` | Max completion tokens. |
 | `deepseek.maxUses` | `5` | Max searches per request before answering. |
 | `deepseek.apiKeyEnv` | `DEEPSEEK_API_KEY` | Credential ref for deepseek (per-provider override). |
@@ -199,8 +195,9 @@ mechanism and the managed-ref auto-sync).
 | `web_doctor` | (none) | Offline readiness report: every registered engine with key-ref status (booleans only, never values), endpoint source (config/env/default), cooldown windows, availability verdict, and the resolved effective chain. Zero network, zero quota. |
 
 Tools stay registered regardless of the active provider - switching provider only
-changes which tier (native / composite / unsupported) serves each call. Research is
-gated off by default (tools.research: false).
+changes which tier (native / composite / unsupported) serves each call. Research
+ships enabled via the bundled `cordis.patch.yml` entry config (`tools.research:
+true`); the schema-level fallback default is `false`.
 
 **Doctor usage**: when search behaves oddly (wrong engine served, sudden 402/429,
 "unavailable" verdicts), call `web_doctor`. It prints, offline and quota-free,
@@ -318,16 +315,3 @@ npm test                      # vitest (tests/), hermetic
 bash scripts/build.sh         # bundle lib/index.js + lib/invariant.js (esbuild)
 ```
 
-Note: `test/search.test.mjs` is a pre-existing legacy harness importing
-`lib/core/provider.js`, which the current bundle build does not emit - use `tests/`
-(vitest) instead.
-
-Publishing note (recorded ahead of npm release): consumers installing via pnpm may
-run under a `minimumReleaseAge` supply-chain policy that holds back freshly
-published versions, so an unpinned range can silently resolve an older release or
-refuse to install. Pin EXACT versions when depending on this package
-(`pnpm add @mr.robot/dsh-web-search-extend@<x.y.z> --save-exact` or
-`npm i @mr.robot/dsh-web-search-extend@<x.y.z>`). For profile-dir lockfile
-reconciles, use `pnpm install --no-frozen-lockfile`; a pure maintenance reconcile
-that changes no locked versions can be exempted once via
-`--config.minimumReleaseAge=0`.

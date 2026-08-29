@@ -13,28 +13,25 @@
 
 分层模块化；适配层**可插拔，不锁死 Tavily**：内置 Firecrawl（开箱 keyless）、DeepSeek（官方后端，保留）、Tavily（**支持 keyless**）。
 
-## 安装（官方 `dsh plugin add`，替换官方）
+## 安装
 
 本包是**标准 DSH bundle 插件**：声明 `dsh.bundle` → `./cordis.patch.yml`，官方 `dsh plugin` CLI
-会把它作为 profile 层安装（无需 super-injector）。**无需手动编辑 profile overlay**：包内自带的
-bundle 层会插入 `dsh-web-search-extend` loader 入口，并携带尾部的
+会把它作为 profile 层安装。**无需手动编辑 profile overlay**：包内自带的 bundle 层会插入
+`dsh-web-search-extend` loader 入口，并携带尾部的
 `- id: web-search-deepseek / disabled: true` 标记来停用官方插件——该随包条目就是权威的接管
 机制（早期遗留的手动 disable 属冗余但无害）。
 
-1. **正常安装：**
+```bash
+dsh plugin --profile web add github:eliotOrderson/dsh-web-search-extend#v0.2.0
+```
 
-   ```bash
-   dsh plugin --profile web add /path/to/dsh-web-search-extend
-   ```
+`#` 后缀是 pnpm 的 git ref：tag、分支、commit SHA 或 `#semver:<范围>`。仓库直接提交构建好的
+`lib/`，安装无需构建步骤，也不需要 pnpm `allowBuilds` 放行。tag 挪动后用
+`dsh plugin --profile web update dsh-web-search-extend` 强制重新解析。
 
-   该命令会把包写入 profile 依赖和 `dsh.profile.bundles`；包内自带的 `cordis.patch.yml`
-   会在启动时插入 `web-search-extend` 入口并停用官方 `web-search-deepseek` 条目。
-
-2. **重启 DSH**（或重新加载 profile）。插件以 `web-search-extend` 条目加载，注册官方配置段
-   （`web-search-deepseek`）与 provider 槽位（`deepseek-official`），agent 原 `web_search`
-   工具即路由到它。
-
-super-injector 仅用于开发期热更新；生产用正常 CLI 安装。
+重启 DSH（或重新加载 profile）。插件以 `dsh-web-search-extend` 条目加载，注册官方配置段
+（`web-search-deepseek`）与 provider 槽位（`deepseek-official`），agent 原 `web_search`
+工具即路由到它。
 
 注意：官方 `@deepseek-ai/dsh-web-search-deepseek` 包仍是**运行时 peer 依赖**。其 loader entry 已被
 禁用，但本插件从它的导出中继承官方 DeepSeek 出厂默认值（model / baseURL / API version /
@@ -125,14 +122,14 @@ WebAdapter 的文件；core 永远不改。
 | `tools.extract` | `true` | 注册 `web_extract`。 |
 | `tools.crawl` | `true` | 注册 `web_crawl`。 |
 | `tools.map` | `true` | 注册 `web_map`。 |
-| `tools.research` | `false` | 注册 `web_research` + `web_research_status`（耗 credits，默认关）。 |
+| `tools.research` | `true` | 注册 `web_research` + `web_research_status`（耗 credits）。 |
 | `tools.doctor` | `true` | 注册 `web_doctor`（离线诊断；零网络/零配额）。 |
 | `limits.extractMaxUrls` | `10` | 每次 web_extract 的最大 URL 数。 |
 | `limits.crawlMaxPages` | `10` | 每次 web_crawl 的最大页数。 |
 | `limits.mapMaxUrls` | `100` | 每次 web_map 的最大 URL 数。 |
 | `limits.perPageChars` | `20000` | 提取/爬取内容的单页渲染上限。 |
-| `deepseek.model` | `deepseek-v4-flash` | 官方 DeepSeek 模型 id。 |
-| `deepseek.apiVersion` | `2023-06-01` | Messages API 版本。 |
+| `deepseek.model` | 继承自 `@deepseek-ai/dsh-web-search-deepseek` | 官方 DeepSeek 模型 id。 |
+| `deepseek.apiVersion` | 继承自 `@deepseek-ai/dsh-web-search-deepseek` | Messages API 版本。 |
 | `deepseek.maxTokens` | `4096` | 最大补全 token。 |
 | `deepseek.maxUses` | `5` | 每次请求最多搜索次数。 |
 | `deepseek.apiKeyEnv` | `DEEPSEEK_API_KEY` | deepseek 的凭据 ref（子节覆盖）。 |
@@ -176,7 +173,8 @@ apiKeyEnv → adapter 默认；badge 机制与受管 ref 自动同步见 AGENTS.
 | `web_doctor` | （无） | 离线就绪报告：列出每个已注册引擎的 key-ref 状态（仅布尔，绝不出值）、端点来源（config/env/default）、冷却窗口、可用性判定与解析后的生效链。零网络、零配额。 |
 
 工具不随 provider 切换而消失——切换 provider 只改变每个调用走哪一层
-（native / composite / unsupported）。research 默认关闭（tools.research: false）。
+（native / composite / unsupported）。research 由随包 `cordis.patch.yml` 条目配置默认
+开启（`tools.research: true`）；schema 层的兜底默认值是 `false`。
 
 **doctor 用法**：当搜索表现异常（疑似走错引擎、突然 402/429、"不可用"判定）时
 调用 `web_doctor`。它离线、零配额地打印每引擎就绪状况——key-ref 解析（仅布尔）、
@@ -275,13 +273,3 @@ npm test                      # vitest（tests/），全离线
 bash scripts/build.sh         # 打包 lib/index.js + lib/invariant.js（esbuild）
 ```
 
-注：`test/search.test.mjs` 是遗留旧 harness，import `lib/core/provider.js`（当前 bundle
-构建不产出该路径）——请用 `tests/`（vitest）替代。
-
-发布注记（提前于 npm 发布记录）：经 pnpm 安装的消费方可能受 `minimumReleaseAge`
-供应链策略约束，刚发布的版本会被冻结，导致未锁精确版本的依赖静默解析到旧版或
-安装失败。依赖本包时请锁定**精确版本**（`pnpm add
-@mr.robot/dsh-web-search-extend@<x.y.z> --save-exact` 或
-`npm i @mr.robot/dsh-web-search-extend@<x.y.z>`）。profile 目录的 lockfile 对账用
-`pnpm install --no-frozen-lockfile`；不改任何锁定版本的纯维护性对账可一次性以
-`--config.minimumReleaseAge=0` 豁免。
