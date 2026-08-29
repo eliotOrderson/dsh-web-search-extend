@@ -37,71 +37,11 @@ dsh plugin --profile web add github:eliotOrderson/dsh-web-search-extend#v0.2.0
 禁用，但本插件从它的导出中继承官方 DeepSeek 出厂默认值（model / baseURL / API version /
 maxTokens / maxUses），从而自动跟随官方更新而非手工镜像。该包随 harness 内置，请保持安装。
 
-## 架构（分层 / 单一责任）
-
-```
-src/
-  index.ts            # cordis 入口：穿官方身份，串联各层，向 ctx.web 注册 provider
-  invariant.ts        # 包所有权伴侣（ctx.invariants）
-  types.ts            # 契约层：SearchAdapter + AdapterRuntime
-  config.ts           # 配置层：官方配置的超集 schema；DeepSeek 默认值继承自官方导出
-  core/               # 接缝集成层（harness 接线，零厂商代码）
-    provider.ts       # ExtensibleWebSearchProvider（id = deepseek-official）
-    capabilities.ts   # capabilitiesOf()：能力由方法存在性推导
-    router.ts         # execute()：native → composite → WEB_OP_UNSUPPORTED 阶梯
-    composites.ts     # 通用 extract/map/crawl（注入 FetchLike，纯算法）
-    html.ts           # 朴素 HTML → text/markdown 转换（兼容下限）
-    registry.ts       # AdapterRegistry（可插拔机制）
-    abort.ts          # 取消处理（横切）
-    errors.ts         # WebError 分类（横切）
-  adapters/           # 适配层（每后端一文件，可插拔）
-  tools/              # 模型面工具（extract/crawl/map/research）+ 共享格式化器
-  ui/
-    client.ts         # 入口：绑定 settings、注册 slot 卡、重排 entries
-    card.ts           # React PluginCard 风格卡片（展开/收起，官方 CSS）
-    fields.ts         # provider/route/api-key/param 字段工厂
-    settings.ts       # settings-scope 访问封装（类型化）
-    i18n.ts           # 语言字典 + translator
-    config.ts         # providers/字段规格/slot 常量（类型化）
-    types.ts          # DSH client 上下文/服务类型
-    deepseek.ts       # DeepSeekAdapter（官方 Anthropic-compatible API，保留）
-    tavily.ts         # TavilyAdapter（keyless）+ 响应映射
-    firecrawl.ts      # FirecrawlKeylessAdapter（keyless search）+ 响应映射
-    index.ts          # createDefaultRegistry() 注册全部内置适配器
-```
-
-新增 provider = 新增 `adapters/<vendor>.ts` 实现 `SearchAdapter` 并在 `createDefaultRegistry()` 注册；core 不动。
-
-## WebAdapter 契约（v2）
-
-```ts
-interface WebAdapter {
-  readonly id: string;                        // 同时也是注册的 ctx.web provider id
-  readonly label: string;
-  readonly requiresApiKey: boolean;
-  readonly defaultApiKeyEnv: string;
-  readonly baseURLEnv: string;
-  readonly defaultBaseURL: string;
-  available(runtime: AdapterRuntime): boolean;
-  search(request, runtime, signal?): Promise<WebSearchResult>;
-  // 可选的原生操作——能力由方法存在性推导，无独立声明表：
-  extract?(req: ExtractRequest, runtime, signal?): Promise<ExtractResult>;
-  crawl?(req: CrawlRequest, runtime, signal?): Promise<CrawlResult>;
-  map?(req: MapRequest, runtime, signal?): Promise<MapResult>;
-  submitResearch?(input: string, runtime, signal?): Promise<ResearchSubmission>;
-  pollResearch?(requestId: string, runtime, signal?): Promise<ResearchStatus>;
-}
-```
-
-每个操作都走路由阶梯：**native 方法 → composite（基于 fetch 接缝的通用
-extract/map/crawl）→ 结构化 WEB_OP_UNSUPPORTED**。新增 provider = 一个实现
-WebAdapter 的文件；core 永远不改。
-
 ## 引擎
 
 | id | 凭据 ref | keyless 行为 | 原生操作 |
 | :--- | :--- | :--- | :--- |
-| `firecrawl-keyless`（**默认**） | `FIRECRAWL_API_KEY`（可选，用于提升配额） | 开箱即搜（约每 IP 每月 1000 credits；耗尽返回 HTTP 402） | search |
+| `firecrawl-keyless`（**默认**） | `FIRECRAWL_API_KEY`（可选，用于提升配额） | 开箱即搜；agent 式 research 端点拒绝 keyless 层（HTTP 401）；免费档约每 IP 每月 1000 credits，耗尽返回 HTTP 402 | 全部五个（search/extract/crawl/map/research） |
 | `tavily` | `TAVILY_API_KEY` | 仅 search（限流） | 全部五个（search/extract/crawl/map/research） |
 | `deepseek` | `DEEPSEEK_API_KEY`（必需） | 无——缺 key 即拒绝 | search |
 
@@ -165,9 +105,9 @@ apiKeyEnv → adapter 默认；badge 机制与受管 ref 自动同步见 AGENTS.
 | 工具 | 参数 | 行为 |
 | :--- | :--- | :--- |
 | `web_search` | `queries: string[]` | 官方工具，未改动——经所选 provider 路由。 |
-| `web_extract` | `urls: string[]`、`query?`、`format?` | 已知 URL 的可读内容（markdown/text）。tavily 原生；通用 composite 兜底。 |
-| `web_crawl` | `url`、`maxPages?`、`includeDomains?`、`excludeDomains?` | 站点有界爬取。tavily 原生；BFS composite 兜底。 |
-| `web_map` | `url`、`maxUrls?` | 枚举站点 URL。tavily 原生；sitemap/robots composite 兜底。 |
+| `web_extract` | `urls: string[]`、`query?`、`format?` | 已知 URL 的可读内容（markdown/text）。tavily / firecrawl 原生；通用 composite 兜底。 |
+| `web_crawl` | `url`、`maxPages?`、`includeDomains?`、`excludeDomains?` | 站点有界爬取。tavily / firecrawl 原生；BFS composite 兜底。 |
+| `web_map` | `url`、`maxUrls?` | 枚举站点 URL。tavily / firecrawl 原生；sitemap/robots composite 兜底。 |
 | `web_research` | `input` | 提交异步深度研究任务（耗 credits！）；返回 requestId。 |
 | `web_research_status` | `requestId` | 轮询研究任务到终态；随后返回内容 + 来源列表。 |
 | `web_doctor` | （无） | 离线就绪报告：列出每个已注册引擎的 key-ref 状态（仅布尔，绝不出值）、端点来源（config/env/default）、冷却窗口、可用性判定与解析后的生效链。零网络、零配额。 |
@@ -192,7 +132,8 @@ keyless 上限 / 端点不可用）。在凭据服务（Models 页）配置 TAVI
 
 ## Firecrawl keyless
 
-`FirecrawlKeylessAdapter` 是默认 `provider`：零配置即可对 Firecrawl 托管 v2 端点执行搜索。注意：
+`FirecrawlKeylessAdapter` 是默认 `provider`：全部五个操作都原生走 Firecrawl 托管 v2
+端点——搜索零配置即可用。注意：
 
 - **每月 credit 配额** —— keyless 层免费但有上限（约每 IP 每月 1000 credits；
   search 每 10 个结果消耗 2 credits）。耗尽后 Firecrawl 返回 HTTP 402，插件以
@@ -200,8 +141,9 @@ keyless 上限 / 端点不可用）。在凭据服务（Models 页）配置 TAVI
 - **配置 key 可提升配额** —— 在 `FIRECRAWL_API_KEY`（凭据服务 / Models 页）存入
   `fc-...` key 即可解除上限；已解析的 key 会以 Bearer token 发送，而非空且不以
   `fc-` 开头的值会让适配器不可用（视为存错 ref）。
-- **仅 search，刻意为之** —— extract/crawl/map 继续走 composite 层：每月共享
-  credits 只花在搜索上；即使配额耗尽，这些工具仍可（免配额）继续使用。
+- **research 需要 key** —— agent 式 research 端点拒绝 keyless 免费层（HTTP 401 →
+  `WEB_PROVIDER_ERROR` 并指明 `FIRECRAWL_API_KEY`）；search/extract/crawl/map
+  共享每月 credit 池。
 
 
 ## 故障转移链
@@ -251,12 +193,72 @@ keyless 上限 / 端点不可用）。在凭据服务（Models 页）配置 TAVI
 - `WEB_OP_FAILED` — composite 执行了但无可用产出（如 web_map 找不到 sitemap）。
 
 
+## 架构（分层 / 单一责任）
+
+```
+src/
+  index.ts            # cordis 入口：穿官方身份，串联各层，向 ctx.web 注册 provider
+  invariant.ts        # 包所有权伴侣（ctx.invariants）
+  types.ts            # 契约层：SearchAdapter + AdapterRuntime
+  config.ts           # 配置层：官方配置的超集 schema；DeepSeek 默认值继承自官方导出
+  core/               # 接缝集成层（harness 接线，零厂商代码）
+    provider.ts       # ExtensibleWebSearchProvider（id = deepseek-official）
+    capabilities.ts   # capabilitiesOf()：能力由方法存在性推导
+    router.ts         # execute()：native → composite → WEB_OP_UNSUPPORTED 阶梯
+    composites.ts     # 通用 extract/map/crawl（注入 FetchLike，纯算法）
+    html.ts           # 朴素 HTML → text/markdown 转换（兼容下限）
+    registry.ts       # AdapterRegistry（可插拔机制）
+    abort.ts          # 取消处理（横切）
+    errors.ts         # WebError 分类（横切）
+  adapters/           # 适配层（每后端一文件，可插拔）
+  tools/              # 模型面工具（extract/crawl/map/research）+ 共享格式化器
+  ui/
+    client.ts         # 入口：绑定 settings、注册 slot 卡、重排 entries
+    card.ts           # React PluginCard 风格卡片（展开/收起，官方 CSS）
+    fields.ts         # provider/route/api-key/param 字段工厂
+    settings.ts       # settings-scope 访问封装（类型化）
+    i18n.ts           # 语言字典 + translator
+    config.ts         # providers/字段规格/slot 常量（类型化）
+    types.ts          # DSH client 上下文/服务类型
+    deepseek.ts       # DeepSeekAdapter（官方 Anthropic-compatible API，保留）
+    tavily.ts         # TavilyAdapter（keyless）+ 响应映射
+    firecrawl.ts      # FirecrawlKeylessAdapter（全部五个操作，key 可选）+ 响应映射
+    index.ts          # createDefaultRegistry() 注册全部内置适配器
+```
+
+新增 provider = 新增 `adapters/<vendor>.ts` 实现 `SearchAdapter` 并在 `createDefaultRegistry()` 注册；core 不动。
+
+## WebAdapter 契约（v2）
+
+```ts
+interface WebAdapter {
+  readonly id: string;                        // 同时也是注册的 ctx.web provider id
+  readonly label: string;
+  readonly requiresApiKey: boolean;
+  readonly defaultApiKeyEnv: string;
+  readonly baseURLEnv: string;
+  readonly defaultBaseURL: string;
+  available(runtime: AdapterRuntime): boolean;
+  search(request, runtime, signal?): Promise<WebSearchResult>;
+  // 可选的原生操作——能力由方法存在性推导，无独立声明表：
+  extract?(req: ExtractRequest, runtime, signal?): Promise<ExtractResult>;
+  crawl?(req: CrawlRequest, runtime, signal?): Promise<CrawlResult>;
+  map?(req: MapRequest, runtime, signal?): Promise<MapResult>;
+  submitResearch?(input: string, runtime, signal?): Promise<ResearchSubmission>;
+  pollResearch?(requestId: string, runtime, signal?): Promise<ResearchStatus>;
+}
+```
+
+每个操作都走路由阶梯：**native 方法 → composite（基于 fetch 接缝的通用
+extract/map/crawl）→ 结构化 WEB_OP_UNSUPPORTED**。新增 provider = 一个实现
+WebAdapter 的文件；core 永远不改。
+
 ## 已验证
 
-- **102 个 vitest 测试**（`tests/`）：路由阶梯、能力 pinning（tavily 五操作；
-  deepseek/firecrawl 仅 search）、composite fixtures（sitemap 解析、HTML 转换、BFS 环路安全、单页失败隔离）、
-  Tavily 全部响应形状映射、Firecrawl keyless 搜索（mock fetch：映射、鉴权头规则、
-  402/429 配额/限流错误）、ChainAdapter 故障转移（可切换 vs 不可切换、原生能力跳过、
+- **127 个 vitest 测试**（`tests/`）：路由阶梯、能力 pinning（tavily/firecrawl 五操作；
+  deepseek 仅 search）、composite fixtures（sitemap 解析、HTML 转换、BFS 环路安全、单页失败隔离）、
+  Tavily 全部响应形状映射、Firecrawl keyless（mock fetch：五个操作映射、鉴权头规则、
+  402/429 配额/限流错误、research-keyless 401）、ChainAdapter 故障转移（可切换 vs 不可切换、原生能力跳过、
   D3 校验）、假时钟 cooldown 调度（指数退避、成功重置、全冷却最后手段）、多 key
   轮换（首个 key 401 → 第二个 key 服务）、降级轨迹（降级结果/错误携带 warnings +
   attempts，直接成功保持静默）与离线 doctor 报告（列出全部成员；输出不含任何
@@ -272,4 +274,3 @@ npx tsc -p tsconfig.json      # src/ -> lib/（保留分层目录）
 npm test                      # vitest（tests/），全离线
 bash scripts/build.sh         # 打包 lib/index.js + lib/invariant.js（esbuild）
 ```
-
