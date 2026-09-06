@@ -22,12 +22,19 @@
 机制（早期遗留的手动 disable 属冗余但无害）。
 
 ```bash
-dsh plugin --profile web add github:eliotOrderson/dsh-web-search-extend#v0.2.0
+dsh plugin --profile web add github:eliotOrderson/dsh-web-search-extend#v0.2.1
 ```
 
 `#` 后缀是 pnpm 的 git ref：tag、分支、commit SHA 或 `#semver:<范围>`。仓库直接提交构建好的
 `lib/`，安装无需构建步骤，也不需要 pnpm `allowBuilds` 放行。tag 挪动后用
 `dsh plugin --profile web update dsh-web-search-extend` 强制重新解析。
+
+## 版本兼容性
+
+| Tag | 适用的 dsh 版本 |
+| :-- | :---------- |
+| `v0.2.1` | **dsh 0.1.2-rc.1 及以后**——依赖重写后的 `@deepseek-ai/dsh-settings` API（`ctx.settings` 服务 / `installSection`）；在 0.1.2-rc.1 的插件页快照运行时下，把设置卡片保持在官方顺序（终端、Agent 循环、subagent 选择、网页搜索），且不再对 DOM 做任何操作 |
+| `v0.2.0` | dsh 0.1.2-rc.1 之前的 0.1.x（旧 `installSettingsSection` API） |
 
 重启 DSH（或重新加载 profile）。插件以 `dsh-web-search-extend` 条目加载，注册官方配置段
 （`web-search-deepseek`）与 provider 槽位（`deepseek-official`），agent 原 `web_search`

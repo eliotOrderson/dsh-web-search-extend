@@ -1,7 +1,7 @@
 {
   "name": "@mr.robot/dsh-web-search-extend",
   "description": "In-place replacement for the official DeepSeek Harness web-search plugin: takes over web-search-deepseek (same settings namespace + provider id deepseek-official), keeps the old web_search tool, and routes through a pluggable SearchAdapter layer (DeepSeek / Tavily keyless / demo). Layered modular, adapter-pluggable.",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "publishConfig": {
     "access": "public"
   },

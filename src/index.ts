@@ -15,7 +15,7 @@
  */
 import type { Context } from "@deepseek-ai/cordis";
 import { credentialRef } from "@deepseek-ai/dsh-credentials";
-import { installSettingsSection, settingsNamespace } from "@deepseek-ai/dsh-settings";
+import type { SettingsProvider } from "@deepseek-ai/dsh-settings";
 import { launchEnvironmentOf } from "@deepseek-ai/dsh-launch-environment";
 import { WebError, type WebFetchProvider } from "@deepseek-ai/dsh-web";
 import { Config, type ConfigType } from "./config.js";
@@ -38,7 +38,7 @@ const inject = ["web", "tools", "systemPrompt", "settings"];
 /** Fallback env name for the base URL when no adapter supplies one. */
 const FALLBACK_BASE_URL_ENV = "DSH_WEB_SEARCH_BASE_URL";
 /** Settings namespace — REUSED so the config page keeps the section in place. */
-const WEB_SEARCH_SETTINGS_NAMESPACE = settingsNamespace("web-search-deepseek");
+const WEB_SEARCH_SETTINGS_NAMESPACE = "web-search-deepseek" as const;
 
 /**
  * Project one resolved config (read live via `getConfig`) into the options the
@@ -162,7 +162,7 @@ function apply(ctx: Context, config: ConfigType): void {
 	// clears it and the engine is simply probed again.
 	const cooldowns = new CooldownBoard();
 	let current = () => config;
-	installSettingsSection(ctx, WEB_SEARCH_SETTINGS_NAMESPACE, Config, config, {
+	ctx.settings.installSection(ctx, WEB_SEARCH_SETTINGS_NAMESPACE, Config, config, {
 		setSource: (source) => {
 			current = source;
 		},

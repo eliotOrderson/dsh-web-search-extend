@@ -2,7 +2,7 @@ import type { DshClientContext, ReactApi, StoredEntry, UiPrimitives } from "./ty
 import { createSettingsAccess } from "./settings.js";
 import { createTranslator } from "./i18n.js";
 import { createWebSearchCard } from "./card.js";
-import { SLOT_NAME, CARD_KEY, CARD_PRIORITY, CARD_ORDER } from "./config.js";
+import { SLOT_NAME, CARD_KEY, CARD_PRIORITY, CARD_ORDER, SETTINGS_NAMESPACE } from "./config.js";
 
 const REGISTRATION_FLAG = "__WSE_CARD_REGISTERED__";
 
@@ -54,7 +54,7 @@ window.__ModuleLoader__.load({
                         key: CARD_KEY,
                         priority: CARD_PRIORITY,
                     } as never, Card as never);
-                    reorderCardEntries(ctx, CARD_ORDER);
+                    yield maintainCardOrder(ctx, CARD_ORDER);
                 });
             } catch (error) {
                 console.warn("[@mr.robot/dsh-web-search-extend] settings card registration failed", error);
@@ -64,13 +64,35 @@ window.__ModuleLoader__.load({
     },
 });
 
-function reorderCardEntries(ctx: DshClientContext, order: readonly string[]): void {
-    // ConfigurablePluginsTab collects namespaces by walking the live entries
-    // array in priority order, so our low-priority entry would render first.
-    // The entries array is an internal live reference; reorder it so Shell,
-    // Agent Loop, then Web Search match the official settings tab order.
-    const entries = ctx.slots.entries(SLOT_NAME as never) as unknown as StoredEntry[];
-    entries.sort((left, right) => rankOf(order, left) - rankOf(order, right));
+/**
+ * Keep the ledger in the official settings-tab order (Shell, Agent Loop,
+ * subagent-model-selection, Web search). The dynamic runner assigns our entry
+ * a negative shadow priority, so registration puts it first; every later
+ * registration re-sorts the ledger by priority, so each ledger change re-asserts
+ * the order here. The tab snapshots its namespace list at publish time and only
+ * re-publishes on ledger or settings-mirror changes — sorting alone is invisible
+ * to it — so after moving entries we write our own current provider value back
+ * once; the mirror update makes the tab re-read the sorted ledger without
+ * changing any real setting.
+ */
+function maintainCardOrder(ctx: DshClientContext, order: readonly string[]): () => void {
+    const onLedgerChange = (): void => {
+        const entries = ctx.slots.entries(SLOT_NAME as never) as unknown as StoredEntry[];
+        const before = entries.map((entry) => entry.options?.key ?? "").join("\u0000");
+        entries.sort((left, right) => rankOf(order, left) - rankOf(order, right));
+        if (before === entries.map((entry) => entry.options?.key ?? "").join("\u0000")) return;
+        try {
+            const scope = ctx.settingsScope.bind<Record<string, unknown>>({ namespace: SETTINGS_NAMESPACE });
+            const snapshot = scope.getSnapshot() as { value?: Record<string, unknown>; base?: unknown } | undefined;
+            const provider = snapshot?.value?.provider ?? (snapshot?.base as Record<string, unknown> | undefined)?.provider;
+            if (typeof provider === "string") void scope.set("provider", provider);
+        } catch (error) {
+            console.warn("[@mr.robot/dsh-web-search-extend] order nudge failed", error);
+        }
+    };
+    const unsubscribe = ctx.slots.subscribe(SLOT_NAME as never, onLedgerChange);
+    onLedgerChange();
+    return unsubscribe;
 }
 
 function rankOf(order: readonly string[], entry: StoredEntry): number {

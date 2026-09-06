@@ -53,4 +53,5 @@ export const SETTINGS_NAMESPACE = "web-search-deepseek";
 export const SLOT_NAME = "settings.plugin.item";
 export const CARD_KEY = "web-search-deepseek";
 export const CARD_PRIORITY = -1;
-export const CARD_ORDER: readonly string[] = ["shell", "agent-loop", "web-search-deepseek"];
+/** Ledger order matching the official settings tab (Shell, Agent Loop, subagent-model-selection, Web search). */
+export const CARD_ORDER: readonly string[] = ["shell", "agent-loop", "subagent-model-selection", "web-search-deepseek"];
