@@ -50,11 +50,18 @@ entry. After moving a tag, force re-resolution with
 
 | Tag | dsh version |
 | :-- | :---------- |
+| `v0.2.2` | **dsh 0.1.5-rc.1 and later** — packaging fix over `v0.2.1` (host and client code unchanged): `zod` is now a direct dependency, because Firecrawl's `zod-to-json-schema` imports `zod/v3` and requires `zod >=3.25.28`, while a hoisted profile install resolved `zod` to 3.23.8 and every entry import failed; devDependencies track the published `0.1.5-rc.2` harness line so `npm install` / `npm ci` resolve without extra flags |
 | `v0.2.1` | **dsh 0.1.2-rc.1 and later** — requires the rewritten `@deepseek-ai/dsh-settings` API (`ctx.settings.installSection`); keeps the settings card at its official position (Shell, Agent Loop, subagent-model-selection, Web search) under the 0.1.2-rc.1 tab snapshot runtime |
 | `v0.2.0` | dsh 0.1.x before 0.1.2-rc.1 (legacy `installSettingsSection` API) |
 
 `v0.2.1` also fixes a page hang on the plugins settings tab caused by an intermediate DOM-reordering
 attempt; the released card order fix is done purely on the slot ledger (no DOM mutation).
+
+`v0.2.2` pins `zod` directly because Firecrawl's `zod-to-json-schema` imports the `zod/v3` subpath
+and requires `zod >=3.25.28`, while a hoisted profile install resolved Firecrawl's `zod` range to
+3.23.8 — the loader entry then failed on the missing subpath. The dev `@deepseek-ai/*` ranges now
+track the current published harness line, and the repo `.npmrc` skips npm's peer resolution: those
+peers are supplied by the running harness, so the installed copies exist only for type-checking.
 
 Restart DSH (or reload the profile). The plugin then loads as the `dsh-web-search-extend` entry,
 registers the official Settings namespace (`web-search-deepseek`) and provider slot
