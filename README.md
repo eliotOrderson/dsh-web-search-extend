@@ -38,7 +38,7 @@ official plugin — that bundled entry is the authoritative takeover mechanism (
 disable from older setups is redundant but harmless).
 
 ```bash
-dsh plugin --profile web add github:eliotOrderson/dsh-web-search-extend#v0.2.1
+dsh plugin --profile web add github:eliotOrderson/dsh-web-search-extend#v0.2.2
 ```
 
 The `#` fragment is a pnpm git ref: tag, branch, commit SHA, or `#semver:<range>`. Prebuilt

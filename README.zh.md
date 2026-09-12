@@ -22,7 +22,7 @@
 机制（早期遗留的手动 disable 属冗余但无害）。
 
 ```bash
-dsh plugin --profile web add github:eliotOrderson/dsh-web-search-extend#v0.2.1
+dsh plugin --profile web add github:eliotOrderson/dsh-web-search-extend#v0.2.2
 ```
 
 `#` 后缀是 pnpm 的 git ref：tag、分支、commit SHA 或 `#semver:<范围>`。仓库直接提交构建好的
