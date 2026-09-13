@@ -7,8 +7,8 @@
 # that the served page registers the plugin's client half.
 #
 # The upgrade case exists because a fresh install is not enough: an older tag's
-# lock can hoist a dependency pair the new tag then inherits, which was how
-# v0.2.2 failed against a profile that already had v0.2.1 installed.
+# lock can hoist a dependency pair the new tag then inherits, and a release that
+# only passed the fresh case still failed on that inherited state.
 #
 # Usage: scripts/install-smoke.sh <spec> [old-spec] [third-party-spec]
 #   spec             candidate dependency spec, e.g.
