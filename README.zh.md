@@ -33,6 +33,7 @@ dsh plugin --profile web add github:eliotOrderson/dsh-web-search-extend#v0.2.2
 
 | Tag | 适用的 dsh 版本 |
 | :-- | :---------- |
+| `v0.2.3` | **dsh 0.1.5-rc.1 及以后**——相对 `v0.2.2` 的安装健壮性修复：把 Firecrawl SDK 连同它所依赖的 `zod` / `zod-to-json-schema` 一起打进 `lib/index.js`，插件不再向 profile 安装 Firecrawl 或 zod 相关包 |
 | `v0.2.2` | **dsh 0.1.5-rc.1 及以后**——相对 `v0.2.1` 只改依赖声明（host 与 client 代码未变）：把 `zod` 提为直接依赖，因为 Firecrawl 的 `zod-to-json-schema` 会 import `zod/v3` 并要求 `zod >=3.25.28`，而 profile 的提升安装把 `zod` 解析成 3.23.8，导致 entry 导入失败；devDependencies 对齐已发布的 `0.1.5-rc.2` harness 线，`npm install` / `npm ci` 不再需要额外 flag |
 | `v0.2.1` | **dsh 0.1.2-rc.1 及以后**——依赖重写后的 `@deepseek-ai/dsh-settings` API（`ctx.settings` 服务 / `installSection`）；在 0.1.2-rc.1 的插件页快照运行时下，把设置卡片保持在官方顺序（终端、Agent 循环、subagent 选择、网页搜索），且不再对 DOM 做任何操作 |
 | `v0.2.0` | dsh 0.1.2-rc.1 之前的 0.1.x（旧 `installSettingsSection` API） |
@@ -42,6 +43,12 @@ dsh plugin --profile web add github:eliotOrderson/dsh-web-search-extend#v0.2.2
 在该子路径上导入失败，因此把 `zod` 显式提为直接依赖；dev 侧的 `@deepseek-ai/*` 区间对齐当前
 已发布的 harness 线；仓库新增 `.npmrc` 跳过 npm 的 peer 解析——这些 peer 由运行中的 harness
 提供，本地安装的那份只用于类型检查。
+
+`v0.2.3` 取代了这一依赖层修复——它只在 profile 重新解析依赖时成立：若 profile 的 lock 里已经
+提升过 `zod@3.23.8`，该副本会一直留在根目录，被提升的 `zod-to-json-schema` 仍从那份副本
+import `zod/v3`，entry 再次失败。现在 host 构建把 Firecrawl SDK 与它所依赖的 `zod` /
+`zod-to-json-schema`（两者都是 build 期 devDependencies）一起内联，profile 的提升结果再也
+影响不到插件的 SDK 路径。
 
 重启 DSH（或重新加载 profile）。插件以 `dsh-web-search-extend` 条目加载，注册官方配置段
 （`web-search-deepseek`）与 provider 槽位（`deepseek-official`），agent 原 `web_search`

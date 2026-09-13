@@ -1,7 +1,7 @@
 {
   "name": "@mr.robot/dsh-web-search-extend",
   "description": "In-place replacement for the official DeepSeek Harness web-search plugin: takes over web-search-deepseek (same settings namespace + provider id deepseek-official), keeps the old web_search tool, and routes through a pluggable SearchAdapter layer (DeepSeek / Tavily keyless / demo). Layered modular, adapter-pluggable.",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "publishConfig": {
     "access": "public"
   },
@@ -63,13 +63,11 @@
     "@mozilla/readability": "^0.6.0",
     "@tavily/core": "^0.7.7",
     "domino": "^2.1.8",
-    "firecrawl": "^4.35.0",
     "ipaddr.js": "^2.5.0",
     "jsdom": "^30.0.1",
     "react": "^18.2.0",
     "turndown": "^7.2.4",
-    "undici": "^8.10.0",
-    "zod": "^3.25.28"
+    "undici": "^8.10.0"
   },
   "devDependencies": {
     "@deepseek-ai/cordis": ">=4.0.0-rc <5",
@@ -97,6 +95,8 @@
     "@types/react": "^18.2.0",
     "@types/turndown": "^5.0.6",
     "esbuild": "^0.28.2",
-    "typescript": "^5.9.3"
+    "firecrawl": "^4.35.0",
+    "typescript": "^5.9.3",
+    "zod": "^3.25.28"
   }
 }
