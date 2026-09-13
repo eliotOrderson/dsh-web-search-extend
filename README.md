@@ -236,6 +236,35 @@ With `fallbacks` set, the provider wraps `[primary, ...fallbacks]` into one
   it serves as a fallback (provider seam hands down a single settings object).
 
 
+## Troubleshooting: `web_fetch` fails with `WEB_BLOCKED_URL`
+
+`web_fetch` is **not** this plugin's tool, but every `web_*` tool that falls through
+to the composite tier inherits the same fetch seam, so its failures surface here.
+
+The fetch provider resolves a hostname itself and **validates the WHOLE answer set**:
+one non-public address rejects the request before any connection is attempted. A host
+behind a TUN-mode proxy therefore fails in two distinct ways, both independent of this
+plugin's configuration:
+
+| Symptom | Cause | Fix |
+| :--- | :--- | :--- |
+| Every domain fails, resolution lands in `198.18.0.0/15` | The proxy's DNS runs in `fake-ip` mode, and `198.18.0.0/15` is not global unicast | Set the proxy's DNS `enhanced-mode` to `redir-host`, or name a proxy in the launch environment so the routed hop resolves the origin itself |
+| One domain fails while others work | Its AAAA answer contains an address the validator rejects — e.g. the RFC 7050 NAT64 discovery sentinel `2001::1`, which `ipaddr.js` classifies as `teredo` | Disable IPv6 in the proxy's DNS block (`dns.ipv6: false`). On a host with no global IPv6 address the AAAA record is useless anyway, and dropping it lets the clean A answer through |
+
+Resolution ordering matters: the failure is decided by whichever answer arrives first,
+so results can flip between runs while nothing is changed. Verify the state before
+concluding a fix failed.
+
+Two further traps, both verified on a Clash Verge + Hyprland host:
+
+- **A subscription profile can override the GUI DNS override.** A profile that ships
+  its own `dns:` block keeps re-imposing its `enhanced-mode` on the next reload, so a
+  change made in the GUI appears to work and then silently reverts. Check the composed
+  config, not the GUI, before re-testing.
+- **IPv6 is the decisive toggle, not the resolver list.** Swapping nameservers cannot
+  help while AAAA answers are being validated: the A answer can be perfectly clean and
+  the request still fails on the AAAA alongside it.
+
 ## Error taxonomy
 
 - `WEB_PROVIDER_CREDENTIAL_MISSING` - key-required backend with no resolvable key.

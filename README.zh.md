@@ -198,6 +198,30 @@ keyless 上限 / 端点不可用）。在凭据服务（Models 页）配置 TAVI
   下发单个 settings 对象）。
 
 
+## 故障排查：`web_fetch` 报 `WEB_BLOCKED_URL`
+
+`web_fetch` **不是**本插件的工具，但所有回落到 composite 层的 `web_*` 工具共用同一条 fetch
+seam，因此它的失败会在这里暴露出来。
+
+fetch provider 自行解析主机名，并**校验整个应答集**：只要有一条地址不是公网地址，请求在建立
+连接之前就被拒绝。因此 TUN 模式代理下的失败分两类，且都与本插件配置无关：
+
+| 现象 | 原因 | 处理 |
+| :--- | :--- | :--- |
+| 所有域名都失败，解析落在 `198.18.0.0/15` | 代理 DNS 处于 `fake-ip` 模式，而该段不是全局单播 | 把代理 DNS 的 `enhanced-mode` 改为 `redir-host`，或在启动环境里显式指定代理，让被路由的那一跳自行解析源站 |
+| 只有个别域名失败 | 该域名的 AAAA 应答含校验器拒绝的地址，典型是 RFC 7050 的 NAT64 发现哨兵地址 `2001::1`（`ipaddr.js` 归类为 `teredo`） | 关掉代理 DNS 段的 IPv6（`dns.ipv6: false`）。主机没有全局 IPv6 地址时该记录本就无用，丢弃它可让干净的 A 应答通过 |
+
+解析是竞速的，**失败与否取决于哪条应答先到**，所以什么都没改结果也可能在两次之间翻转。下结论
+前先确认当前状态。
+
+另有两个已在 Clash Verge + Hyprland 主机上验证过的坑：
+
+- **订阅 profile 会覆盖 GUI 里的 DNS 覆写。** profile 自带 `dns:` 段时，会在下次重载时重新
+  强加它自己的 `enhanced-mode`，于是 GUI 里的修改看似生效、随后静默回退。复测前请检查合成后的
+  配置（`clash-verge.yaml`），而不是 GUI。
+- **决定成败的是 IPv6 开关，不是解析器列表。** 只要 AAAA 应答参与校验，换 nameserver 就无济
+  于事：A 应答完全干净，请求仍会因为旁边那条 AAAA 而失败。
+
 ## 错误分类
 
 - `WEB_PROVIDER_CREDENTIAL_MISSING` — 需 key 后端无可用 key。
