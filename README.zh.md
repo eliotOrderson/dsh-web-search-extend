@@ -34,7 +34,7 @@ dsh plugin --profile web add github:eliotOrderson/dsh-web-search-extend#v0.2.3
 | Tag | 适用的 dsh 版本 |
 | :-- | :---------- |
 | `v0.2.3` | **dsh 0.1.5-rc.1 及以后**——把 Firecrawl SDK 连同它所依赖的 `zod` / `zod-to-json-schema` 一起打进 `lib/index.js`，插件不再向 profile 安装 Firecrawl 或 zod 相关包；devDependencies 对齐已发布的 `0.1.5-rc.2` harness 线，`npm install` / `npm ci` 不需要额外 flag |
-| `v0.2.1` | **dsh 0.1.2-rc.1 及以后**——依赖重写后的 `@deepseek-ai/dsh-settings` API（`ctx.settings` 服务 / `installSection`）；在 0.1.2-rc.1 的插件页快照运行时下，把设置卡片保持在官方顺序（终端、Agent 循环、subagent 选择、网页搜索），且不再对 DOM 做任何操作 |
+| `v0.2.1` | **已被 `v0.2.3` 取代**——不要在 dsh 0.1.5-rc.1 上安装：其 loader entry 会因 Firecrawl SDK 的 `zod/v3` 依赖经 profile 解析而导入失败 |
 | `v0.2.0` | dsh 0.1.2-rc.1 之前的 0.1.x（旧 `installSettingsSection` API） |
 
 `v0.2.3` 把 Firecrawl SDK 与它构建时使用的 `zod` / `zod-to-json-schema` 一起打进 bundle（两者

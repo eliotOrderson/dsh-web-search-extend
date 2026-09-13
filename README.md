@@ -51,7 +51,7 @@ entry. After moving a tag, force re-resolution with
 | Tag | dsh version |
 | :-- | :---------- |
 | `v0.2.3` | **dsh 0.1.5-rc.1 and later** — the Firecrawl SDK is bundled into `lib/index.js` together with the `zod` / `zod-to-json-schema` pair it was built against, so the plugin installs no Firecrawl or zod package into the profile at all; devDependencies track the published `0.1.5-rc.2` harness line, so `npm install` / `npm ci` resolve without extra flags |
-| `v0.2.1` | **dsh 0.1.2-rc.1 and later** — requires the rewritten `@deepseek-ai/dsh-settings` API (`ctx.settings.installSection`); keeps the settings card at its official position (Shell, Agent Loop, subagent-model-selection, Web search) under the 0.1.2-rc.1 tab snapshot runtime |
+| `v0.2.1` | **superseded by `v0.2.3`** — do not install it on dsh 0.1.5-rc.1: its loader entry fails to import because the Firecrawl SDK's `zod/v3` dependency resolves through the profile |
 | `v0.2.0` | dsh 0.1.x before 0.1.2-rc.1 (legacy `installSettingsSection` API) |
 
 `v0.2.1` also fixes a page hang on the plugins settings tab caused by an intermediate DOM-reordering
