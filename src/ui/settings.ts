@@ -12,15 +12,22 @@ export interface SettingsAccess {
     describeRef(refName: string): Promise<boolean | null>;
 }
 
-interface ScopeWriteRequest {
+/**
+ * The write surface beyond the published `SettingsScope<T>`: the shipped
+ * `SettingsScopeController` implements `mutate`, while this runtime version's
+ * typings still carry `set`/`unset` only. `mutate` is the path-addressed form
+ * `set` delegates to, and the one nested fields need — a scope has no
+ * `write(request)` member, whatever a local interface claims.
+ */
+interface ScopeWithMutate<T> extends SettingsScope<T> {
+    mutate(ops: readonly ScopePathOp[]): Promise<void>;
+    describe?(request: { refs: string[] }): Promise<unknown>;
+}
+
+interface ScopePathOp {
     op: "set";
     path: string[];
     value: unknown;
-}
-
-interface ScopeWithWrite<T> extends SettingsScope<T> {
-    write(request: ScopeWriteRequest): unknown;
-    describe?(request: { refs: string[] }): Promise<unknown>;
 }
 
 type SnapshotShape = {
@@ -29,7 +36,7 @@ type SnapshotShape = {
 };
 
 export function createSettingsAccess(settingsScope: SettingsScopeBinder): SettingsAccess {
-    const scope = settingsScope.bind<Record<string, unknown>>({ namespace: SETTINGS_NAMESPACE }) as ScopeWithWrite<Record<string, unknown>>;
+    const scope = settingsScope.bind<Record<string, unknown>>({ namespace: SETTINGS_NAMESPACE }) as ScopeWithMutate<Record<string, unknown>>;
 
     const snapshot = (): SettingsScopeSnapshot<Record<string, unknown>> | SnapshotShape => {
         try {
@@ -68,7 +75,9 @@ export function createSettingsAccess(settingsScope: SettingsScopeBinder): Settin
 
     const write = (path: readonly string[], value: unknown): void => {
         try {
-            scope.write({ op: "set", path: [...path], value });
+            void scope.mutate([{ op: "set", path: [...path], value }]).catch((error: unknown) => {
+                console.warn("[@mr.robot/dsh-web-search-extend] failed to persist", path.join("."), error);
+            });
         } catch (error) {
             console.warn("[@mr.robot/dsh-web-search-extend] failed to persist", path.join("."), error);
         }

@@ -38,7 +38,7 @@ official plugin — that bundled entry is the authoritative takeover mechanism (
 disable from older setups is redundant but harmless).
 
 ```bash
-dsh plugin --profile web add github:eliotOrderson/dsh-web-search-extend#v0.2.3
+dsh plugin --profile web add github:eliotOrderson/dsh-web-search-extend#v0.2.4
 ```
 
 The `#` fragment is a pnpm git ref: tag, branch, commit SHA, or `#semver:<range>`. Prebuilt
@@ -50,9 +50,16 @@ entry. After moving a tag, force re-resolution with
 
 | Tag | dsh version |
 | :-- | :---------- |
-| `v0.2.3` | **dsh 0.1.5-rc.1 and later** — the Firecrawl SDK is bundled into `lib/index.js` together with the `zod` / `zod-to-json-schema` pair it was built against, so the plugin installs no Firecrawl or zod package into the profile at all; devDependencies track the published `0.1.5-rc.2` harness line, so `npm install` / `npm ci` resolve without extra flags |
-| `v0.2.1` | **superseded by `v0.2.3`** — do not install it on dsh 0.1.5-rc.1: its loader entry fails to import because the Firecrawl SDK's `zod/v3` dependency resolves through the profile |
+| `v0.2.4` | **dsh 0.1.5-rc.1 and later** — the settings card writes through the client's real `SettingsScope` API again: it called a non-existent `scope.write(...)`, so every control on the card (provider, routing mode, API key, per-provider parameters) silently did nothing while the write failure went to `console.warn` |
+| `v0.2.3` | **superseded by `v0.2.4`** — the Firecrawl SDK is bundled into `lib/index.js` together with the `zod` / `zod-to-json-schema` pair it was built against, so the plugin installs no Firecrawl or zod package into the profile at all; devDependencies track the published `0.1.5-rc.2` harness line, so `npm install` / `npm ci` resolve without extra flags |
+| `v0.2.1` | **superseded by `v0.2.4`** — do not install it on dsh 0.1.5-rc.1: its loader entry fails to import because the Firecrawl SDK's `zod/v3` dependency resolves through the profile |
 | `v0.2.0` | dsh 0.1.x before 0.1.2-rc.1 (legacy `installSettingsSection` API) |
+
+`v0.2.4` routes card writes through `scope.mutate([{ op: "set", path, value }])`. The previous call
+targeted `scope.write(...)`, which no client version implements, and the local interface that
+declared it was only ever asserted onto the bound scope — so TypeScript could not catch the mistake
+and esbuild, which bundles the client half, never type-checks. `tests/ui-settings.test.ts` pins the
+write path against a stand-in carrying exactly the members the shipped client scope exposes.
 
 `v0.2.1` also fixes a page hang on the plugins settings tab caused by an intermediate DOM-reordering
 attempt; the released card order fix is done purely on the slot ledger (no DOM mutation).

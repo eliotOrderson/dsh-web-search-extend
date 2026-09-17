@@ -22,7 +22,7 @@
 机制（早期遗留的手动 disable 属冗余但无害）。
 
 ```bash
-dsh plugin --profile web add github:eliotOrderson/dsh-web-search-extend#v0.2.3
+dsh plugin --profile web add github:eliotOrderson/dsh-web-search-extend#v0.2.4
 ```
 
 `#` 后缀是 pnpm 的 git ref：tag、分支、commit SHA 或 `#semver:<范围>`。仓库直接提交构建好的
@@ -33,9 +33,15 @@ dsh plugin --profile web add github:eliotOrderson/dsh-web-search-extend#v0.2.3
 
 | Tag | 适用的 dsh 版本 |
 | :-- | :---------- |
-| `v0.2.3` | **dsh 0.1.5-rc.1 及以后**——把 Firecrawl SDK 连同它所依赖的 `zod` / `zod-to-json-schema` 一起打进 `lib/index.js`，插件不再向 profile 安装 Firecrawl 或 zod 相关包；devDependencies 对齐已发布的 `0.1.5-rc.2` harness 线，`npm install` / `npm ci` 不需要额外 flag |
-| `v0.2.1` | **已被 `v0.2.3` 取代**——不要在 dsh 0.1.5-rc.1 上安装：其 loader entry 会因 Firecrawl SDK 的 `zod/v3` 依赖经 profile 解析而导入失败 |
+| `v0.2.4` | **dsh 0.1.5-rc.1 及以后**——设置卡片的写入重新走客户端真实的 `SettingsScope` API：此前调用的是根本不存在的 `scope.write(...)`，于是卡片上所有控件（provider、路由模式、API Key、各 provider 参数）全部静默失效，失败只落进 `console.warn` |
+| `v0.2.3` | **已被 `v0.2.4` 取代**——把 Firecrawl SDK 连同它所依赖的 `zod` / `zod-to-json-schema` 一起打进 `lib/index.js`，插件不再向 profile 安装 Firecrawl 或 zod 相关包；devDependencies 对齐已发布的 `0.1.5-rc.2` harness 线，`npm install` / `npm ci` 不需要额外 flag |
+| `v0.2.1` | **已被 `v0.2.4` 取代**——不要在 dsh 0.1.5-rc.1 上安装：其 loader entry 会因 Firecrawl SDK 的 `zod/v3` 依赖经 profile 解析而导入失败 |
 | `v0.2.0` | dsh 0.1.2-rc.1 之前的 0.1.x（旧 `installSettingsSection` API） |
+
+`v0.2.4` 让卡片写入走 `scope.mutate([{ op: "set", path, value }])`。此前的调用指向
+`scope.write(...)`，任何客户端版本都没有这个成员；而声明它的本地 interface 只是被断言到
+绑定出来的 scope 上，所以 TypeScript 抓不到，打包客户端半边的 esbuild 又从不做类型检查。
+`tests/ui-settings.test.ts` 用只带真实客户端 scope 成员的替身把这个写入路径钉住了。
 
 `v0.2.3` 把 Firecrawl SDK 与它构建时使用的 `zod` / `zod-to-json-schema` 一起打进 bundle（两者
 现在都是 build 期 devDependencies）。经 profile 解析这对依赖正是此前安装失败的原因：当 profile
