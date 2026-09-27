@@ -132,3 +132,31 @@ Status: APPROVED (user).
 - Do NOT adopt modsearch's minimal-contact-surface philosophy wholesale — it
   conflicts with our drop-in takeover goal; we adopt its loud-degradation
   visibility instead (TASK.md Step 5).
+
+## 2026-09-27 — main tracks unreleased dsh, tags track released dsh
+
+Status: APPROVED (user).
+
+Context: 0.1.7 removed the namespace-keyed settings scope and the
+`settings.plugin.item` slot, so the card moved to `configForms` + `plugins.item`,
+a surface no 0.1.5 harness provides. Independently, a `github:`/registry install
+stopped importing at all: the bundled jsdom dependency reaches tr46, whose
+`require("punycode/")` makes the harness resolver throw for any profile-layer
+dependency (`ResolutionRouter.routeScoped` iterates a null `resolve.paths`
+without a guard), while a `link:` dependency returns earlier and never hits it.
+That asymmetry is why only checkouts booted.
+
+Decision: `main` tracks the newest dsh, released or not; a tag tracks the newest
+**released** dsh and is cut only after that harness ships (v0.3.0 stays untagged
+until 0.1.7 leaves `next`). The Readability pass takes its DOM from linkedom -
+same article text as jsdom, HTML within 1%, about 4x faster, and no
+whatwg-url/tr46 in its tree. The retired card, its field factories, its
+SettingsScope adapter and the tests pinning them are deleted; the interfaces they
+carried live in `src/ui/types.ts`.
+
+Consequences: a `main` install is expected to fail on an older harness rather
+than degrade. Each harness requirement lives in the README's
+version-compatibility table, because no version guard can carry it - nothing in a
+published dsh reads `dsh.engines`, and a profile never resolves
+`peerDependencies`. Any dependency added later must be checked for
+`<core-module>/` requires before it lands in a profile layer.

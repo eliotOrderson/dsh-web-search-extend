@@ -32,6 +32,9 @@ profile 层安装在 dsh 0.1.7 上能正常启动的修订；该 tag 推送后�
 
 ## 版本兼容性
 
+`main` 始终对齐**最新的 dsh（含预发布）**；tag 对齐**已发布的最新 dsh**，且只在该 harness 正式发布后才打。
+你的 harness 有对应 tag 就装 tag，暂时没有就装上面那个已验证的 `main` 提交。
+
 | Tag | 适用的 dsh 版本 |
 | :-- | :---------- |
 | `v0.3.0` | **dsh 0.1.7-rc.2 及以后**——设置卡片改走 0.1.7 客户端面（绑定 `configForms.get(entryId)`、注册进 Plugins 页的 `plugins.item` 席位），且 Readability 正文提取的 DOM 从 jsdom 换成 linkedom——这正是 `github:` / registry 安装得以启动的原因。**不要装在 0.1.5 上**：客户端半边注入的服务该版本不提供，条目会一直 pending，浏览器启动随之中止 |
@@ -309,6 +312,8 @@ WebAdapter 的文件；core 永远不改。
   key 形态内容）——全离线（假 fetch / mock SDK，零网络）。
 - 三层冷启动 preflight（composition 试跑 / resolve / client 身份）通过。
 - 实机（人工）：各 provider ref 存储已验证；密钥行显示所解析 ref 的状态；真实 Tavily search/extract。
+- `48cb333` 的 `github:` 安装在 dsh 0.1.7-rc.2 上能启动（卡片所需的 `configForms` 服务就位后未激活
+  条目为 0）并正常渲染卡片；换成 linkedom 之前，同样的安装会 failed to import。
 
 
 ## 开发

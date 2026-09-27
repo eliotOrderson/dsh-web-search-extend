@@ -12,7 +12,7 @@ export const FIRECRAWL_API_KEY_ENV = "FIRECRAWL_API_KEY";
 export const TAVILY_API_KEY_ENV = "TAVILY_API_KEY";
 export const DEEPSEEK_API_KEY_ENV = "DEEPSEEK_API_KEY";
 
-/** Default key ref per provider; the settings card badge reads the top-level apiKeyEnv. */
+/** Default key ref per provider; the card describes and writes the key under the ref apiKeyEnv names. */
 export const PROVIDER_DEFAULT_API_KEY_ENVS: Record<string, string> = {
 	tavily: TAVILY_API_KEY_ENV,
 	deepseek: DEEPSEEK_API_KEY_ENV,

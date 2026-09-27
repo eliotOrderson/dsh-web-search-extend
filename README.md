@@ -50,6 +50,10 @@ pnpm `allowBuilds` entry. After moving a tag, force re-resolution with
 
 ## Version compatibility
 
+`main` always targets the newest dsh, prereleases included, while a tag targets the newest **released**
+dsh and is cut only after that release ships. Install the tag that matches your harness, or the pinned
+`main` commit above while no tag does yet.
+
 | Tag | dsh version |
 | :-- | :---------- |
 | `v0.3.0` | **dsh 0.1.7-rc.2 and later** — the settings card moves to the 0.1.7 client surface (it binds `configForms.get(entryId)` and registers into the Plugins page's `plugins.item` seat), and the Readability pass takes its DOM from linkedom instead of jsdom, which is what lets a `github:`/registry install boot at all. Do **not** install it on 0.1.5: the client half injects a service that release does not provide, so the entry stays pending and the browser boot aborts |
@@ -362,6 +366,9 @@ provider = one file implementing WebAdapter; the core never changes.
 - Three-layer cold-path preflight (composition dry-run / resolve / client identity) passes.
 - Live (human): key storage per provider ref verified; the key field reports the resolved ref's
   state; real Tavily search/extract through the active provider.
+- A `github:` install of `48cb333` boots on dsh 0.1.7-rc.2 (0 inactive entries once the card's
+  `configForms` service resolves) and renders the card; the same install failed to import before the
+  linkedom swap.
 
 
 ## Development
