@@ -35,7 +35,6 @@ import { rotatingKey } from "./core/rotating-key.js";
 import { makeLocalFetchProvider } from "./core/localFetch.js";
 import { createDefaultRegistry } from "./adapters/index.js";
 import { applyWebTools } from "./tools/index.js";
-import type { DoctorCacheReport } from "./tools/doctor.js";
 import type { ScopedSearchPlanner, ScopedSearchRequest, ScopedSearchRunner } from "./tools/scoped.js";
 
 /** Cordis plugin name — independent from the official one on purpose. */
@@ -199,10 +198,6 @@ function apply(ctx: Context, config: VolatileConfig): void {
 		if (current().cache?.enabled !== false) saveState();
 	};
 	const cacheEnabled = cacheSettings?.enabled !== false;
-	const cacheInfo = (): DoctorCacheReport => {
-		const live = cacheSettings ?? { ttlSeconds: DEFAULT_TTL_MS / 1000, maxEntries: DEFAULT_MAX_ENTRIES };
-		return { enabled: cacheEnabled, ttlSeconds: live.ttlSeconds, maxEntries: live.maxEntries, ...cache.stats(), stateDir: cacheEnabled ? stateDir : "" };
-	};
 	// ttl/maxEntries are applied at mount (a settings edit that changes them needs a
 	// restart); `enabled` is re-read per call so switching the tier off takes effect
 	// at once instead of only stopping the next store.
@@ -284,7 +279,7 @@ function apply(ctx: Context, config: VolatileConfig): void {
 		);
 	};
 
-	applyWebTools(ctx, resolveOpts, current().tools, { registry, config: current, cooldowns, cacheInfo }, scopedPlanner, scopedRunner);
+	applyWebTools(ctx, resolveOpts, current().tools, scopedPlanner, scopedRunner);
 	if (current().fetchBackend === "adapter") {
 		ctx.web.registerFetchProvider(makeFetchProvider(resolveOpts));
 	}

@@ -123,7 +123,6 @@ usable on every provider.
 | `tools.map` | `true` | Register `web_map`. |
 | `tools.scoped` | `true` | Register `web_search_scoped` (explicit time / topic / locale / domain filters). |
 | `tools.research` | `true` | Register `web_research` + `web_research_status` (credits-heavy). |
-| `tools.doctor` | `true` | Register `web_doctor` (offline diagnostics; zero network/quota). |
 | `limits.extractMaxUrls` | `10` | Max URLs per web_extract call. |
 | `limits.crawlMaxPages` | `10` | Max pages per web_crawl call. |
 | `limits.mapMaxUrls` | `100` | Max URLs per web_map call. |
@@ -179,7 +178,6 @@ inside `apply()`, see AGENTS.md for the resolution order).
 | `web_map` | `url`, `maxUrls?` | Enumerate site URLs. Native on tavily / firecrawl; sitemap/robots composite fallback. |
 | `web_research` | `input` | Submit an async deep-research task (credits!); returns requestId. |
 | `web_research_status` | `requestId` | Poll one research task to a terminal phase; then returns content + sources. |
-| `web_doctor` | (none) | Offline readiness report: every registered engine with key-ref status (booleans only, never values), endpoint source (config/env/default), cooldown windows, availability verdict, and the resolved effective chain. Zero network, zero quota. |
 
 ### Why `web_search_scoped` exists, and why it does not parse your query
 
@@ -223,12 +221,10 @@ changes which tier (native / composite / unsupported) serves each call. Research
 ships enabled via the bundled `cordis.patch.yml` entry config (`tools.research:
 true`); the schema-level fallback default is `false`.
 
-**Doctor usage**: when search behaves oddly (wrong engine served, sudden 402/429,
-"unavailable" verdicts), call `web_doctor`. It prints, offline and quota-free,
-per-engine readiness — key-ref resolution as booleans only, endpoint source
-(config/env/default), cooldown windows, availability — plus the effective chain
-and any fallbacks validation problems. Use it to confirm which engine actually
-serves before touching credentials or settings.
+A misbehaving engine reports itself on the call that hits it: a switchable failure
+names the member and the reason, a cooldown appears as `X cooling until <ISO>` on
+the warnings trail, and a filter the active provider cannot express is named in
+the scope line. That is why there is no separate offline diagnostics tool.
 
 
 ## Keyless Tavily
@@ -427,7 +423,7 @@ provider = one file implementing WebAdapter; the core never changes.
 
 ## Verified
 
-- **326 vitest tests** (`tests/`): router ladder, capability pinning (tavily/firecrawl: all five
+- **321 vitest tests** (`tests/`): router ladder, capability pinning (tavily/firecrawl: all five
   ops; deepseek: search-only), composite fixtures (sitemap parse, HTML conversion,
   BFS cycle safety, per-page failure isolation), Tavily mappings for every response
   shape, Firecrawl keyless (mocked fetch: all five op mappings, auth-header rules,
@@ -435,9 +431,8 @@ provider = one file implementing WebAdapter; the core never changes.
   native-capability skipping, D3 validation), fake-clock cooldown schedule
   (exponential backoff, reset-on-success, all-cooling last-resort), multi-key
   rotation (first key 401s -> second serves), loud-degradation trails (warnings +
-  attempts on degraded results/errors, silence on direct success), and the offline
-  doctor report (every member listed; nothing key-like in output) - all hermetic
-  (fake fetch / mocked SDK, zero network).
+  attempts on degraded results/errors, silence on direct success), and nothing
+  key-like reaching disk - all hermetic (fake fetch / mocked SDK, zero network).
 - **Scoped search**: hint normalization (every accepted spelling and the unusable ones), the
   per-adapter mapping tables against the installed SDK types, the chain intersection including its
   single-member identity property, the scope line's honest labelling of ignored filters, and the

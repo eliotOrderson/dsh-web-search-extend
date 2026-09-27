@@ -74,7 +74,6 @@ const ConfigShape = z.object({
 		crawl: z.boolean().default(true),
 		map: z.boolean().default(true),
 		research: z.boolean().default(false),
-		doctor: z.boolean().default(true),
 	}),
 	limits: z.object({
 		extractMaxUrls: z.number().step(1).min(1).default(10),

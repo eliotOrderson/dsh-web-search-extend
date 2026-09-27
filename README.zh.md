@@ -93,7 +93,6 @@ maxTokens / maxUses），从而自动跟随官方更新而非手工镜像。该�
 | `tools.map` | `true` | 注册 `web_map`。 |
 | `tools.scoped` | `true` | 注册 `web_search_scoped`（显式的时间 / 主题 / 地区 / 域名过滤）。 |
 | `tools.research` | `true` | 注册 `web_research` + `web_research_status`（耗 credits）。 |
-| `tools.doctor` | `true` | 注册 `web_doctor`（离线诊断；零网络/零配额）。 |
 | `limits.extractMaxUrls` | `10` | 每次 web_extract 的最大 URL 数。 |
 | `limits.crawlMaxPages` | `10` | 每次 web_crawl 的最大页数。 |
 | `limits.mapMaxUrls` | `100` | 每次 web_map 的最大 URL 数。 |
@@ -147,7 +146,6 @@ apiKeyEnv → adapter 默认；受管 ref 的自动同步在 `apply()` 内，解
 | `web_map` | `url`、`maxUrls?` | 枚举站点 URL。tavily / firecrawl 原生；sitemap/robots composite 兜底。 |
 | `web_research` | `input` | 提交异步深度研究任务（耗 credits！）；返回 requestId。 |
 | `web_research_status` | `requestId` | 轮询研究任务到终态；随后返回内容 + 来源列表。 |
-| `web_doctor` | （无） | 离线就绪报告：列出每个已注册引擎的 key-ref 状态（仅布尔，绝不出值）、端点来源（config/env/default）、冷却窗口、可用性判定与解析后的生效链。零网络、零配额。 |
 
 ### 为什么要有 `web_search_scoped`，以及为什么不解析你的查询
 
@@ -182,10 +180,9 @@ apiKeyEnv → adapter 默认；受管 ref 的自动同步在 `apply()` 内，解
 （native / composite / unsupported）。research 由随包 `cordis.patch.yml` 条目配置默认
 开启（`tools.research: true`）；schema 层的兜底默认值是 `false`。
 
-**doctor 用法**：当搜索表现异常（疑似走错引擎、突然 402/429、"不可用"判定）时
-调用 `web_doctor`。它离线、零配额地打印每引擎就绪状况——key-ref 解析（仅布尔）、
-端点来源（config/env/default）、冷却窗口、可用性——以及生效链与 fallbacks 校验
-问题。在动凭据或设置之前，先用它确认实际服务的是哪个引擎。
+行为异常的引擎会在**碰到它的那次调用上**自报：可切换失败会点名成员与原因，冷却会以
+`X cooling until <ISO>` 出现在 warnings 轨迹上，当前 provider 表达不了的过滤会在
+scope 行里被点名。这就是没有单独的离线诊断工具的原因。
 
 
 ## Keyless Tavily
@@ -361,14 +358,14 @@ WebAdapter 的文件；core 永远不改。
 
 ## 已验证
 
-- **326 个 vitest 测试**（`tests/`）：路由阶梯、能力 pinning（tavily/firecrawl 五操作；
+- **321 个 vitest 测试**（`tests/`）：路由阶梯、能力 pinning（tavily/firecrawl 五操作；
   deepseek 仅 search）、composite fixtures（sitemap 解析、HTML 转换、BFS 环路安全、单页失败隔离）、
   Tavily 全部响应形状映射、Firecrawl keyless（mock fetch：五个操作映射、鉴权头规则、
   402/429 配额/限流错误、research-keyless 401）、ChainAdapter 故障转移（可切换 vs 不可切换、原生能力跳过、
   D3 校验）、假时钟 cooldown 调度（指数退避、成功重置、全冷却最后手段）、多 key
   轮换（首个 key 401 → 第二个 key 服务）、降级轨迹（降级结果/错误携带 warnings +
-  attempts，直接成功保持静默）与离线 doctor 报告（列出全部成员；输出不含任何
-  key 形态内容）——全离线（假 fetch / mock SDK，零网络）。
+  attempts，直接成功保持静默），以及**没有任何类 key 内容落盘**——全离线
+  （假 fetch / mock SDK，零网络）。
 - **缓存与状态**：存储行为（TTL 过期、LRU 顺序、容错加载）、挂载它的 provider 接缝
   （重复查询不再发起调用、命中被标注且不伪造 attempts、调用方的改动无法触达存储条目）、
   并发写入下的原子状态写、只读目录降级、两种 RFC 形式的 `Retry-After`（无该响应头时指数

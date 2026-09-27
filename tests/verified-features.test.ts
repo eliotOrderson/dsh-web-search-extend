@@ -38,14 +38,11 @@ import {
 	saveBoard,
 } from "../src/core/cooldown.js";
 import { readState, writeState } from "../src/core/state.js";
-import { cacheKey, DEFAULT_MAX_ENTRIES, DEFAULT_TTL_MS, ResultCache, canonicalize } from "../src/core/cache.js";
+import { cacheKey, ResultCache, canonicalize } from "../src/core/cache.js";
 import { chainOf } from "../src/core/chain.js";
 import { ExtensibleWebSearchProvider, type ResolvedOptions } from "../src/core/provider.js";
 import { DeepSeekAdapter } from "../src/adapters/deepseek.js";
 import { TavilyAdapter } from "../src/adapters/tavily.js";
-import { ConfigShape } from "../src/config.js";
-import { AdapterRegistry } from "../src/core/registry.js";
-import { buildDoctorReport, renderDoctorReport } from "../src/tools/doctor.js";
 import type { AdapterRuntime, SearchAdapter } from "../src/types.js";
 import { TavilyKeylessLimitError } from "@tavily/core";
 
@@ -941,14 +938,14 @@ describe("claim 4: a hit is visible and metadata-shaped", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Claim 5 — no secrets in the state document or the doctor output
+// Claim 5 — no secrets reaching disk (the state document)
 // ---------------------------------------------------------------------------
 
 describe("claim 5: no key material and no raw request text", () => {
 	const SECRET = "SUPERSECRET-KEY-do-not-persist-abc123";
 	const QUERY = "RAW-QUERY-TEXT-do-not-persist-xyz789";
 
-	it("neither the state document nor the doctor output carries the secret or the query", async () => {
+	it("the state document carries neither the secret nor the query", async () => {
 		const dir = tempDir("secrets");
 		const clock = fakeClock(0);
 		const cache = new ResultCache({ clock: clock.now });
@@ -973,33 +970,9 @@ describe("claim 5: no key material and no raw request text", () => {
 		expect(raw).not.toContain(SECRET);
 		expect(raw).not.toContain(QUERY);
 		expect(raw).not.toContain("do-not-persist");
-
-		const config = ConfigShape({ provider: "tavily", apiKey: SECRET });
-		const registry = new AdapterRegistry();
-		registry.register(adapter);
-		const report = await buildDoctorReport({
-			registry,
-			config,
-			envLookup: () => undefined,
-			refResolves: async (refName) => refName === "API_KEY" || refName.length > 0,
-			cooldowns: board,
-			cacheInfo: () => ({
-				enabled: true,
-				ttlSeconds: DEFAULT_TTL_MS / 1000,
-				maxEntries: DEFAULT_MAX_ENTRIES,
-				...cache.stats(),
-				stateDir: dir,
-			}),
-		});
-		const rendered = renderDoctorReport(report);
-		// The top-level apiKeyEnv carries the schema default, and the doctor mirrors
-		// resolveOptions' ladder: the reference NAME plus a boolean, never the value.
-		expect(rendered).toContain(`credential ${config.apiKeyEnv!} resolves: true`);
-		expect(rendered).not.toContain(SECRET);
-		expect(rendered).not.toContain(QUERY);
-		expect(rendered).not.toContain("do-not-persist");
-		// The only credential-shaped information is the reference NAME plus a boolean.
-		expect(rendered).not.toMatch(/authorization|bearer|x-api-key/i);
+		// The only credential-shaped thing that reaches disk is a hashed cache key;
+		// the key VALUE lives in the adapter's runtime and nowhere else.
+		expect(raw).not.toMatch(/authorization|bearer|x-api-key/i);
 	});
 
 	it("emits the evidence artifact the report greps (never a repo path)", async () => {
@@ -1024,23 +997,6 @@ describe("claim 5: no key material and no raw request text", () => {
 		board.onQuotaError("tavily", 60_000);
 		await provider.search({ query: QUERY });
 
-		const registry = new AdapterRegistry();
-		registry.register(adapter);
-		const report = await buildDoctorReport({
-			registry,
-			config: ConfigShape({ provider: "tavily", apiKey: SECRET }),
-			envLookup: () => undefined,
-			refResolves: async () => true,
-			cooldowns: board,
-			cacheInfo: () => ({
-				enabled: true,
-				ttlSeconds: 900,
-				maxEntries: 200,
-				...cache.stats(),
-				stateDir: evidence,
-			}),
-		});
-		fs.writeFileSync(path.join(evidence, "doctor.txt"), renderDoctorReport(report));
 		expect(fs.existsSync(path.join(evidence, "state.json"))).toBe(true);
 	});
 
