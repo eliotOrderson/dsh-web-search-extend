@@ -9,6 +9,7 @@
 import { WebError, type WebSearchResult, type WebSearchSource } from "@deepseek-ai/dsh-web";
 import type { AdapterRuntime, SearchAdapter } from "../types.js";
 import { isAbortError } from "../core/abort.js";
+import { markRetryAfter, parseRetryAfter } from "../core/cooldown.js";
 import {
 	DEEPSEEK_API_KEY_ENV,
 	DEEPSEEK_DEFAULT_API_VERSION,
@@ -138,7 +139,12 @@ export const DeepSeekAdapter: SearchAdapter = {
 			} catch {
 				/* non-JSON error body */
 			}
-			throw new WebError(message, "WEB_PROVIDER_ERROR");
+			// Native fetch is the only transport in this package that hands us the
+			// response headers, so this adapter is the only one that can tell the
+			// cooldown how long upstream itself wants us to wait; the vendor SDKs
+			// behind the other adapters throw errors that drop the headers.
+			const retryAfterMs = parseRetryAfter(response.headers.get("retry-after"));
+			throw markRetryAfter(new WebError(message, "WEB_PROVIDER_ERROR"), retryAfterMs);
 		}
 		try {
 			return mapDeepSeekResponse(await response.json());

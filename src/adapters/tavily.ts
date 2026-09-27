@@ -21,6 +21,7 @@ import {
 	type TavilySearchResponse,
 } from "@tavily/core";
 import { WebError, type WebSearchResult, type WebSearchSource } from "@deepseek-ai/dsh-web";
+import { markRetryAfter } from "../core/cooldown.js";
 import type {
 	AdapterRuntime,
 	CrawlRequest,
@@ -63,13 +64,30 @@ function throwIfAborted(signal?: AbortSignal): void {
 	if (signal?.aborted === true) throw new WebError("Search aborted", "WEB_ABORTED", { cause: signal.reason });
 }
 
+/**
+ * Read the retry delay the Tavily SDK carries on its quota error. Tavily sends
+ * it in the response BODY (`error.retry_after_seconds`) rather than as a
+ * `Retry-After` header, and the SDK re-exposes it as a top-level `retryAfter`
+ * in seconds — dropping it would throw away the one server-supplied window this
+ * transport can offer and leave the cooldown board guessing.
+ */
+function retryAfterMsOfTavilyError(error: unknown): number | undefined {
+	if (typeof error !== "object" || error === null) return undefined;
+	const seconds = (error as { retryAfter?: unknown }).retryAfter;
+	if (typeof seconds !== "number" || !Number.isFinite(seconds) || seconds < 0) return undefined;
+	return seconds * 1_000;
+}
+
 /** Keyless mode covers search ONLY: every other endpoint rejects without a key. */
 function normalizeTavilyError(error: unknown, runtime: AdapterRuntime): unknown {
 	if (error instanceof TavilyKeylessLimitError) {
-		return new WebError(
-			`Tavily keyless rate limit reached: ${String(error)}. Set ${runtime.apiKeyEnv} for full access.`,
-			"WEB_PROVIDER_ERROR",
-			{ cause: error },
+		return markRetryAfter(
+			new WebError(
+				`Tavily keyless rate limit reached: ${String(error)}. Set ${runtime.apiKeyEnv} for full access.`,
+				"WEB_PROVIDER_ERROR",
+				{ cause: error },
+			),
+			retryAfterMsOfTavilyError(error),
 		);
 	}
 	return error;

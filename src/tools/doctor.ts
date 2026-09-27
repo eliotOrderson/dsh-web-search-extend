@@ -26,6 +26,8 @@ export interface DoctorDeps {
 	/** Whether a credential-ref name resolves to a non-empty value. */
 	readonly refResolves: (refName: string) => Promise<boolean>;
 	readonly cooldowns: CooldownBoard | undefined;
+	/** Lazy: the cache tier's live counters, reported when the tier is wired. */
+	readonly cacheInfo?: () => DoctorCacheReport;
 }
 
 export interface DoctorAdapterReport {
@@ -42,11 +44,25 @@ export interface DoctorAdapterReport {
 	readonly chainRole: "primary" | "fallback" | "standby";
 }
 
+/** Cache tier as the report shows it: settings plus live counters, never payloads. */
+export interface DoctorCacheReport {
+	readonly enabled: boolean;
+	readonly ttlSeconds: number;
+	readonly maxEntries: number;
+	readonly entries: number;
+	readonly hits: number;
+	readonly misses: number;
+	readonly evicted: number;
+	/** Directory the state document is published to; empty when the tier is off. */
+	readonly stateDir: string;
+}
+
 export interface DoctorReport {
 	readonly provider: string;
 	readonly effectiveChain: readonly string[];
 	readonly problems: readonly string[];
 	readonly adapters: readonly DoctorAdapterReport[];
+	readonly cache?: DoctorCacheReport;
 }
 
 /** Mirrors resolveOptions' key-ref ladder so the doctor reports what WOULD be used. */
@@ -95,6 +111,7 @@ export async function buildDoctorReport(deps: DoctorDeps): Promise<DoctorReport>
 		effectiveChain: chain.members.map((member) => member.id),
 		problems: [...chain.problems],
 		adapters,
+		...(deps.cacheInfo === undefined ? {} : { cache: deps.cacheInfo() }),
 	};
 }
 
@@ -106,6 +123,14 @@ export function renderDoctorReport(report: DoctorReport): string {
 		`effective chain: ${report.effectiveChain.length > 0 ? report.effectiveChain.join(" -> ") : "(none)"}`,
 	];
 	if (report.problems.length > 0) lines.push(`chain problems: ${report.problems.join("; ")}`);
+	if (report.cache !== undefined) {
+		lines.push(
+			report.cache.enabled
+				? `cache: enabled (ttl ${report.cache.ttlSeconds}s, max ${report.cache.maxEntries}, entries ${report.cache.entries}, hits ${report.cache.hits}, misses ${report.cache.misses}, evicted ${report.cache.evicted})`
+				: "cache: disabled",
+		);
+		if (report.cache.stateDir.length > 0) lines.push(`state dir: ${report.cache.stateDir}`);
+	}
 	lines.push("adapters:");
 	for (const adapter of report.adapters) {
 		lines.push(
@@ -128,7 +153,7 @@ export function renderDoctorReport(report: DoctorReport): string {
  * resolver mirrors resolveOptions' ladder (credentials service -> launching
  * environment -> process.env) but reduces every source to a boolean.
  */
-export function applyDoctorTool(ctx: Context, wiring: { registry: AdapterRegistry; config: () => ConfigType; cooldowns: CooldownBoard | undefined }, options: { enabled: boolean }): void {
+export function applyDoctorTool(ctx: Context, wiring: { registry: AdapterRegistry; config: () => ConfigType; cooldowns: CooldownBoard | undefined; cacheInfo?: () => DoctorCacheReport }, options: { enabled: boolean }): void {
 	if (!options.enabled) return;
 	const refResolves = async (refName: string): Promise<boolean> => {
 		const credentials = ctx.get("credentials");
@@ -144,7 +169,7 @@ export function applyDoctorTool(ctx: Context, wiring: { registry: AdapterRegistr
 	ctx.tools.register(defineTool({
 		name: "web_doctor",
 		description:
-			"Offline web-search diagnostics: list every registered search engine with its key-reference status (booleans only, never secret values), endpoint source, cooldown window, availability verdict, and the effective failover chain. Zero network, zero quota.",
+			"Offline web-search diagnostics: list every registered search engine with its key-reference status (booleans only, never secret values), endpoint source, cooldown window, availability verdict, the effective failover chain, and the result cache tier (config, hit/miss counters, state directory). Zero network, zero quota.",
 		parameters: {},
 		output: {
 			schema: {
@@ -162,6 +187,7 @@ export function applyDoctorTool(ctx: Context, wiring: { registry: AdapterRegistr
 				envLookup: (name) => launchEnvironmentOf(ctx).get(name)?.value,
 				refResolves,
 				cooldowns: wiring.cooldowns,
+				...(wiring.cacheInfo === undefined ? {} : { cacheInfo: wiring.cacheInfo }),
 			});
 			return { text: renderDoctorReport(report) };
 		},

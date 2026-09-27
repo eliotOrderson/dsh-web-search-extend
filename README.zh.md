@@ -97,6 +97,12 @@ maxTokens / maxUses），从而自动跟随官方更新而非手工镜像。该�
 | `limits.crawlMaxPages` | `10` | 每次 web_crawl 的最大页数。 |
 | `limits.mapMaxUrls` | `100` | 每次 web_map 的最大 URL 数。 |
 | `limits.perPageChars` | `20000` | 提取/爬取内容的单页渲染上限。 |
+| `cache.enabled` | `true` | 重复的 `web_search` 由本地结果缓存服务，不再走网络。 |
+| `cache.ttlSeconds` | `900` | 缓存结果可被继续服务的时长。 |
+| `cache.maxEntries` | `200` | 缓存条目上限，超出后淘汰最久未使用的一条。 |
+
+`cache.*` 是配置文件项，不是卡片上的行：卡片保持官方控件清单（`provider`、`routeMode`、
+`apiKey`、各 provider 参数），因此调缓存需要编辑 `web-search-deepseek` 段或经 settings RPC 写入。
 | `deepseek.model` | 继承自 `@deepseek-ai/dsh-web-search-deepseek` | 官方 DeepSeek 模型 id。 |
 | `deepseek.apiVersion` | 继承自 `@deepseek-ai/dsh-web-search-deepseek` | Messages API 版本。 |
 | `deepseek.maxTokens` | `4096` | 最大补全 token。 |
@@ -196,12 +202,25 @@ keyless 上限 / 端点不可用）。在凭据服务（Models 页）配置 TAVI
   fallback/跳过的结果或错误都会携带 `attempts[]` 与人类可读的 `warnings[]`
   （"fell back X -> Y"、"X cooling until T"）。首个成员直接成功时不携带任何
   附加字段——静默即代表没有发生降级。
-- **Cooldown（仅内存，D2）** —— 任何 `WEB_PROVIDER_ERROR`（429 / 配额 / 5xx /
-  网络——与链的 switchable 失效转移同一分类）都会让该成员进入冷却窗口：
-  `60s * 2^(此前连续失败数)`，上限约 30 分钟。`WEB_PROVIDER_CREDENTIAL_MISSING`
+- **Cooldown** —— 任何 `WEB_PROVIDER_ERROR`（429 / 配额 / 5xx / 网络——与链的
+  switchable 失效转移同一分类）都会让该成员进入冷却窗口：
+  `60s * 2^(此前连续失败数)`，上限约 30 分钟。上游真的发了 `Retry-After` 时它
+  **压过**这个估算值（下限 1 秒、上限同为 30 分钟）：服务端知道自己的配额何时
+  重置，我们不知道。只有 deepseek 适配器能读到该响应头（HTTP 调用归它自己）；
+  Tavily SDK 把该延迟作为响应体派生的 `retryAfter`（秒）暴露出来，已映射进同一
+  信号；Firecrawl SDK 则完全丢弃，该成员继续走指数估算。
+  `WEB_PROVIDER_CREDENTIAL_MISSING`
   绝不触发冷却：缺 key 不会随时间自愈。冷却成员被跳过（记录为 `skipped` 尝试），
   但当所有可执行成员都在冷却时会全部作为最后手段重试；任一成功都会清除该成员
-  的窗口与计数。状态仅存于内存——重启即清空。
+  的窗口与计数。冷却板会持久化到 `<state dir>/state.json`，重启后接着走完剩余
+  窗口，而不是立刻再去撞刚拒绝过我们的引擎；加载时丢弃已过期、以及超出上限的
+  窗口，而失败计数在窗口过期后保留——与「进程一直没重启」的内存语义一致。
+- **结果缓存** —— 只作用于 `web_search`（extract/crawl/map/research 仍然每次都
+  走网络）。相同的查询 + 影响答案的配置在 `cache.ttlSeconds` 内由内存直接服务；
+  key 覆盖适配器、provider、base URL、settings 快照与请求本身，绝不包含凭据。
+  命中属于降级成功：它会在 `warnings[]` 轨迹上带 `cache hit (age Ns)`，且**不带**
+  `attempts[]`——因为没有任何成员被调用过。缓存与冷却板一起跨重启存活；状态文件
+  写不进去时插件静默退化为纯内存，绝不会变成搜索失败。
 - **Key rotation** —— 主适配器解析出的 key 值可包含逗号分隔的多个 key
   （`k1,k2,k3`，字面量或单个凭据 ref 的值）。auth / 配额 / 限流失败会在错误逃
   逸到链之前轮换到下一个 key；其他失败立即原样抛出；耗尽全部 key 后抛出原始
@@ -261,6 +280,9 @@ src/
     composites.ts     # 通用 extract/map/crawl（注入 FetchLike，纯算法）
     html.ts           # 朴素 HTML → text/markdown 转换（兼容下限）
     registry.ts       # AdapterRegistry（可插拔机制）
+    cache.ts          # ResultCache：LRU + TTL 的键值存储（纯逻辑，时钟注入）
+    state.ts          # 冷却层与缓存层共享的原子 JSON 状态文档
+    cooldown.ts       # 冷却板：Retry-After 解析 + 持久化
     abort.ts          # 取消处理（横切）
     errors.ts         # WebError 分类（横切）
   adapters/           # 适配层（每后端一文件，可插拔）
@@ -305,7 +327,7 @@ WebAdapter 的文件；core 永远不改。
 
 ## 已验证
 
-- **127 个 vitest 测试**（`tests/`）：路由阶梯、能力 pinning（tavily/firecrawl 五操作；
+- **249 个 vitest 测试**（`tests/`）：路由阶梯、能力 pinning（tavily/firecrawl 五操作；
   deepseek 仅 search）、composite fixtures（sitemap 解析、HTML 转换、BFS 环路安全、单页失败隔离）、
   Tavily 全部响应形状映射、Firecrawl keyless（mock fetch：五个操作映射、鉴权头规则、
   402/429 配额/限流错误、research-keyless 401）、ChainAdapter 故障转移（可切换 vs 不可切换、原生能力跳过、
@@ -313,6 +335,10 @@ WebAdapter 的文件；core 永远不改。
   轮换（首个 key 401 → 第二个 key 服务）、降级轨迹（降级结果/错误携带 warnings +
   attempts，直接成功保持静默）与离线 doctor 报告（列出全部成员；输出不含任何
   key 形态内容）——全离线（假 fetch / mock SDK，零网络）。
+- **缓存与状态**：存储行为（TTL 过期、LRU 顺序、容错加载）、挂载它的 provider 接缝
+  （重复查询不再发起调用、命中被标注且不伪造 attempts、调用方的改动无法触达存储条目）、
+  并发写入下的原子状态写、只读目录降级、两种 RFC 形式的 `Retry-After`（无该响应头时指数
+  调度逐字节不变），以及跨真实进程边界（`spawnSync`）恢复的冷却板。
 - 三层冷启动 preflight（composition 试跑 / resolve / client 身份）通过。
 - 实机（人工）：各 provider ref 存储已验证；密钥行显示所解析 ref 的状态；真实 Tavily search/extract。
 - `48cb333` 的 `github:` 安装在 dsh 0.1.7-rc.2 上能启动（卡片所需的 `configForms` 服务就位后未激活

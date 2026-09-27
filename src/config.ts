@@ -17,6 +17,7 @@ import {
 	DEEPSEEK_DEFAULT_MODEL,
 } from "@deepseek-ai/dsh-web-search-deepseek";
 import { FIRECRAWL_API_KEY_ENV, TAVILY_API_KEY_ENV, DEEPSEEK_API_KEY_ENV } from "./provider-refs.js";
+import { DEFAULT_MAX_ENTRIES, DEFAULT_TTL_MS } from "./core/cache.js";
 
 export { FIRECRAWL_API_KEY_ENV, TAVILY_API_KEY_ENV, DEEPSEEK_API_KEY_ENV } from "./provider-refs.js";
 
@@ -78,6 +79,17 @@ const ConfigShape = z.object({
 		crawlMaxPages: z.number().step(1).min(1).default(10),
 		mapMaxUrls: z.number().step(1).min(1).default(100),
 		perPageChars: z.number().step(1).min(1).default(20000),
+	}),
+	/**
+	 * Search-result cache. Every call otherwise hits the network, which spends
+	 * the Firecrawl keyless monthly credit pool and trips free-tier rate limits;
+	 * repeat queries inside the TTL window are served from memory instead. A hit
+	 * is never silent — it rides the result's `warnings` trail.
+	 */
+	cache: z.object({
+		enabled: z.boolean().default(true),
+		ttlSeconds: z.number().step(1).min(1).default(DEFAULT_TTL_MS / 1000),
+		maxEntries: z.number().step(1).min(1).default(DEFAULT_MAX_ENTRIES),
 	}),
 	deepseek: z.object({
 		model: z.string().default(DEEPSEEK_DEFAULT_MODEL),

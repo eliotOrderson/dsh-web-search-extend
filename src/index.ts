@@ -19,15 +19,18 @@ import { launchEnvironmentOf } from "@deepseek-ai/dsh-launch-environment";
 import { WebError, type WebFetchProvider } from "@deepseek-ai/dsh-web";
 import { Config, ConfigShape, type ConfigType } from "./config.js";
 import { capabilitiesOf } from "./core/capabilities.js";
+import { DEFAULT_MAX_ENTRIES, DEFAULT_TTL_MS, ResultCache } from "./core/cache.js";
 import { ExtensibleWebSearchProvider, resolveExecution, type ResolvedOptions } from "./core/provider.js";
 import { execute } from "./core/router.js";
 import { AdapterRegistry } from "./core/registry.js";
 import { chainOf, resolveChain } from "./core/chain.js";
-import { CooldownBoard } from "./core/cooldown.js";
+import { CooldownBoard, loadBoard } from "./core/cooldown.js";
+import { readState, resolveStateDir, writeState } from "./core/state.js";
 import { rotatingKey } from "./core/rotating-key.js";
 import { makeLocalFetchProvider } from "./core/localFetch.js";
 import { createDefaultRegistry } from "./adapters/index.js";
 import { applyWebTools } from "./tools/index.js";
+import type { DoctorCacheReport } from "./tools/doctor.js";
 
 /** Cordis plugin name — independent from the official one on purpose. */
 const name = "dsh-web-search-extend";
@@ -162,20 +165,50 @@ interface VolatileConfig {
 /** Register the replacement search provider with `ctx.web`. */
 function apply(ctx: Context, config: VolatileConfig): void {
 	const registry = createDefaultRegistry();
-	// D2: cooldown state lives in memory for the plugin's lifetime; a restart
-	// clears it and the engine is simply probed again.
-	const cooldowns = new CooldownBoard();
 	// 0.1.7 drops the namespace-keyed settings surface: the entry's own volatile
 	// Config is the form, and this thunk is the single reader of it.
 	const current = (): ConfigType => config.get() ?? ConfigShape({});
+	const stateDir = resolveStateDir(ctx);
+	// Cooldown and cache state share one document; both are re-read before every
+	// write so each tier publishes its own slice without erasing the other's.
+	const cooldowns = loadBoard(stateDir);
+	const cacheSettings = current().cache;
+	const cache = ResultCache.fromState(readState(stateDir)?.cache, {
+		ttlMs: (cacheSettings?.ttlSeconds ?? DEFAULT_TTL_MS / 1000) * 1000,
+		maxEntries: cacheSettings?.maxEntries ?? DEFAULT_MAX_ENTRIES,
+	});
+	const saveState = (): void => {
+		writeState(stateDir, {
+			version: 1,
+			cooldown: cooldowns.toState(),
+			cache: cache.toState(),
+		});
+	};
 	const resolveOpts = resolveOptions(ctx, current, registry, cooldowns);
-	ctx.web.registerSearchProvider(new ExtensibleWebSearchProvider(resolveOpts));
+	// The cache hook is a no-op when the tier is switched off: nothing was stored,
+	// so nothing needs publishing.
+	const persist = (): void => {
+		if (current().cache?.enabled !== false) saveState();
+	};
+	const cacheEnabled = cacheSettings?.enabled !== false;
+	const cacheInfo = (): DoctorCacheReport => {
+		const live = cacheSettings ?? { ttlSeconds: DEFAULT_TTL_MS / 1000, maxEntries: DEFAULT_MAX_ENTRIES };
+		return { enabled: cacheEnabled, ttlSeconds: live.ttlSeconds, maxEntries: live.maxEntries, ...cache.stats(), stateDir: cacheEnabled ? stateDir : "" };
+	};
+	// ttl/maxEntries are applied at mount (a settings edit that changes them needs a
+	// restart); `enabled` is re-read per call so switching the tier off takes effect
+	// at once instead of only stopping the next store.
+	const provider = new ExtensibleWebSearchProvider(resolveOpts, cacheEnabled ? cache : undefined, persist, () => current().cache?.enabled !== false);
+	ctx.web.registerSearchProvider(provider);
 	const fetchProviders = () => [...(ctx.web as unknown as { fetchProviders: Map<string, WebFetchProvider> }).fetchProviders.values()];
 	ctx.web.registerFetchProvider(makeLocalFetchProvider(fetchProviders));
-	applyWebTools(ctx, resolveOpts, current().tools, { registry, config: current, cooldowns });
+	applyWebTools(ctx, resolveOpts, current().tools, { registry, config: current, cooldowns, cacheInfo });
 	if (current().fetchBackend === "adapter") {
 		ctx.web.registerFetchProvider(makeFetchProvider(resolveOpts));
 	}
+	// A restart re-probes every engine, so the last publish before teardown is
+	// what carries the cooldown to the next process; the cache rides along.
+	ctx.effect(() => () => persist());
 }
 
 export { Config, createDefaultRegistry, apply, inject, name };

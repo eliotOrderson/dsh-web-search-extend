@@ -24,7 +24,7 @@ import type {
 	SearchAdapter,
 } from "../types.js";
 import { capabilitiesOf } from "./capabilities.js";
-import { CooldownBoard, isQuotaError } from "./cooldown.js";
+import { CooldownBoard, isQuotaError, retryAfterMsOf } from "./cooldown.js";
 
 /** One member's recorded outcome for a single chain execution (surfaced in Step 5). */
 export interface ChainAttempt {
@@ -87,7 +87,10 @@ async function runMember<T>(member: SearchAdapter, record: AttemptSink, cooldown
 			durationMs: Date.now() - startedAt,
 			...(error instanceof WebError ? { errorCode: error.code } : {}),
 		});
-		if (cooldowns !== undefined && isQuotaError(error)) cooldowns.onQuotaError(member.id);
+		// Read the server signal HERE, on the error the member threw: the provider
+		// rethrows WebErrors unchanged, so this is the last frame where the
+		// stamped property is still top-level rather than wrapped in a cause.
+		if (cooldowns !== undefined && isQuotaError(error)) cooldowns.onQuotaError(member.id, retryAfterMsOf(error));
 		throw error;
 	}
 }

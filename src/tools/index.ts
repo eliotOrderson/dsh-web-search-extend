@@ -11,7 +11,7 @@ import type { AdapterRegistry } from "../core/registry.js";
 import type { CooldownBoard } from "../core/cooldown.js";
 import type { ConfigType } from "../config.js";
 import { applyCrawlTool } from "./crawl.js";
-import { applyDoctorTool } from "./doctor.js";
+import { applyDoctorTool, type DoctorCacheReport } from "./doctor.js";
 import { applyExtractTool } from "./extract.js";
 import { applyMapTool } from "./map.js";
 import { applyResearchStatusTool, applyResearchSubmitTool } from "./research.js";
@@ -30,6 +30,8 @@ export interface DoctorWiring {
 	readonly registry: AdapterRegistry;
 	readonly config: () => ConfigType;
 	readonly cooldowns: CooldownBoard;
+	/** Lazy cache-tier view (settings + live counters), reported offline by the doctor. */
+	readonly cacheInfo?: () => DoctorCacheReport;
 }
 
 /**
@@ -59,7 +61,8 @@ export function applyWebTools(ctx: Context, resolveOptions: () => ResolvedOption
 			"When you already know the URL and clean text matters (several pages, or fetch's markdown noise hurts), prefer web_extract over web_fetch.",
 			"web_crawl and web_map have native quality on some providers and fall back to a simpler built-in crawl/sitemap pass on others.",
 			"web_research costs credits: submit once, then poll web_research_status patiently with gaps of at least 20 seconds instead of re-submitting.",
-			"web_doctor prints an offline readiness report of every engine (key refs as booleans, endpoints, cooldowns, effective chain) when search behaves oddly.",
+			"web_doctor prints an offline readiness report of every engine (key refs as booleans, endpoints, cooldowns, effective chain, cache counters) when search behaves oddly.",
+			"A result carrying a 'cache hit (age Ns)' warning was served from the local result cache rather than the network, so it may be up to the configured TTL old; re-run with the cache disabled only if that staleness actually matters.",
 		].join(" "),
 	});
 }

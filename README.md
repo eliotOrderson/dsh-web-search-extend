@@ -127,6 +127,13 @@ usable on every provider.
 | `limits.crawlMaxPages` | `10` | Max pages per web_crawl call. |
 | `limits.mapMaxUrls` | `100` | Max URLs per web_map call. |
 | `limits.perPageChars` | `20000` | Per-page render cap for extracted/crawled content. |
+| `cache.enabled` | `true` | Serve a repeated `web_search` from the local result cache instead of the network. |
+| `cache.ttlSeconds` | `900` | How long a cached result stays serveable. |
+| `cache.maxEntries` | `200` | Cap on cached results; the least recently used entry is evicted past it. |
+
+`cache.*` is a settings-file key, not a card row: the card keeps the official control inventory
+(`provider`, `routeMode`, `apiKey`, per-provider parameters), so tuning the cache means editing the
+`web-search-deepseek` section or writing it through the settings RPC.
 | `deepseek.model` | inherited from `@deepseek-ai/dsh-web-search-deepseek` | Official DeepSeek model id. |
 | `deepseek.apiVersion` | inherited from `@deepseek-ai/dsh-web-search-deepseek` | Messages API version. |
 | `deepseek.maxTokens` | `4096` | Max completion tokens. |
@@ -237,13 +244,31 @@ With `fallbacks` set, the provider wraps `[primary, ...fallbacks]` into one
   `attempts[]` plus human-readable `warnings[]` ("fell back X -> Y", "X cooling
   until T"). A direct first-member success carries neither — silence means no
   degradation happened.
-- **Cooldown (memory-only, D2)** - any `WEB_PROVIDER_ERROR` (429 / quota / 5xx /
-  network — the same switchable class the chain fails over on) puts the member on
-  cooldown for `60s * 2^(prior consecutive failures)`, capped at ~30 min.
+- **Cooldown** - any `WEB_PROVIDER_ERROR` (429 / quota / 5xx / network — the same
+  switchable class the chain fails over on) puts the member on cooldown for
+  `60s * 2^(prior consecutive failures)`, capped at ~30 min. A `Retry-After` the
+  upstream server actually sent BEATS that estimate (clamped to a 1 s floor and the
+  same 30 min ceiling): the server knows when its quota resets and we do not. Only
+  the deepseek adapter can read the header — it owns its HTTP call — while the
+  Tavily SDK exports the delay as a body-derived `retryAfter` in seconds (mapped
+  into the same signal) and the Firecrawl SDK drops it entirely, so that member
+  keeps the exponential estimate.
   `WEB_PROVIDER_CREDENTIAL_MISSING` never cools: a missing key does not heal with
   time. Cooling members are skipped (recorded as `skipped` attempts) but still
   tried last-resort when every capable member is cooling; any success clears that
-  member's window and count. State lives in memory only — restarts clear it.
+  member's window and count. The board is persisted to `<state dir>/state.json`, so
+  a restart resumes the remaining window instead of re-probing an engine the server
+  just refused; a window that already expired, or one further out than the ceiling,
+  is dropped on load, and the failure streak survives an expired window exactly as
+  it does in a process that stayed up.
+- **Result cache** - `web_search` only (extract/crawl/map/research still always
+  reach the network). Identical query + answer-affecting config is served from
+  memory for `cache.ttlSeconds`; the key covers the adapter, the provider, the base
+  URL, the settings snapshot and the request, never the credential. A hit is a
+  degraded success: it carries `cache hit (age Ns)` on the `warnings[]` trail and
+  **no** `attempts[]`, because no member ran. Cached results survive a restart along
+  with the cooldown board, and a state file that cannot be written degrades the
+  plugin to memory-only silently — never to a failed search.
 - **Key rotation** - the primary adapter's resolved key value may hold
   COMMA-SEPARATED keys (`k1,k2,k3`, literal or one credential ref's value). Auth /
   quota / rate-limit failures rotate to the next key before escaping to the chain;
@@ -311,6 +336,9 @@ src/
     composites.ts     # universal extract/map/crawl over an injected FetchLike
     html.ts           # naive HTML -> text/markdown converter (compat floor)
     registry.ts       # AdapterRegistry (the pluggability mechanism)
+    cache.ts          # ResultCache: LRU + TTL keyed store (pure, injected clock)
+    state.ts          # atomic JSON state document shared by the cooldown and cache tiers
+    cooldown.ts       # cooldown board: Retry-After parsing + persistence
     abort.ts          # cancellation handling (cross-cutting)
     errors.ts         # WebError taxonomy (cross-cutting)
   adapters/           # adapter layer (one file per backend — pluggable)
@@ -356,7 +384,7 @@ provider = one file implementing WebAdapter; the core never changes.
 
 ## Verified
 
-- **127 vitest tests** (`tests/`): router ladder, capability pinning (tavily/firecrawl: all five
+- **249 vitest tests** (`tests/`): router ladder, capability pinning (tavily/firecrawl: all five
   ops; deepseek: search-only), composite fixtures (sitemap parse, HTML conversion,
   BFS cycle safety, per-page failure isolation), Tavily mappings for every response
   shape, Firecrawl keyless (mocked fetch: all five op mappings, auth-header rules,
@@ -367,6 +395,12 @@ provider = one file implementing WebAdapter; the core never changes.
   attempts on degraded results/errors, silence on direct success), and the offline
   doctor report (every member listed; nothing key-like in output) - all hermetic
   (fake fetch / mocked SDK, zero network).
+- **Cache and state**: store behaviour (TTL expiry, LRU order, defensive load), the
+  provider seam that mounts it (a repeat query never dispatches, a hit is marked and
+  fabricates no attempt, a caller's mutation cannot reach the stored entry), atomic
+  state writes under concurrent writers, read-only degradation, `Retry-After` in both
+  RFC forms with the exponential schedule unchanged when the header is absent, and a
+  cooldown board restored across a real process boundary (`spawnSync`).
 - Three-layer cold-path preflight (composition dry-run / resolve / client identity) passes.
 - Live (human): key storage per provider ref verified; the key field reports the resolved ref's
   state; real Tavily search/extract through the active provider.
