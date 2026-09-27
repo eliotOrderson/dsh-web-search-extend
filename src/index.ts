@@ -4,7 +4,7 @@
  * It takes over the official identity where it matters (so nothing downstream
  * changes), while keeping an independent cordis name so a normal bundle install
  * is not accidentally disabled by the patch that disables the official:
- * - settings namespace: `web-search-deepseek` (config page same position)
+ * - settings surface:   its own entry's Config (0.1.7 keys forms by entry id)
  * - provider id:        `deepseek-official` (seam/agent selection unchanged)
  * - cordis plugin name: `dsh-web-search-extend` (distinct loader identity)
  *
@@ -15,11 +15,9 @@
  */
 import type { Context } from "@deepseek-ai/cordis";
 import { credentialRef } from "@deepseek-ai/dsh-credentials";
-import type { SettingsProvider } from "@deepseek-ai/dsh-settings";
 import { launchEnvironmentOf } from "@deepseek-ai/dsh-launch-environment";
 import { WebError, type WebFetchProvider } from "@deepseek-ai/dsh-web";
-import { Config, type ConfigType } from "./config.js";
-import { PROVIDER_DEFAULT_API_KEY_ENVS } from "./provider-refs.js";
+import { Config, ConfigShape, type ConfigType } from "./config.js";
 import { capabilitiesOf } from "./core/capabilities.js";
 import { ExtensibleWebSearchProvider, resolveExecution, type ResolvedOptions } from "./core/provider.js";
 import { execute } from "./core/router.js";
@@ -37,8 +35,6 @@ const name = "dsh-web-search-extend";
 const inject = ["web", "tools", "systemPrompt", "settings"];
 /** Fallback env name for the base URL when no adapter supplies one. */
 const FALLBACK_BASE_URL_ENV = "DSH_WEB_SEARCH_BASE_URL";
-/** Settings namespace — REUSED so the config page keeps the section in place. */
-const WEB_SEARCH_SETTINGS_NAMESPACE = "web-search-deepseek" as const;
 
 /**
  * Project one resolved config (read live via `getConfig`) into the options the
@@ -65,7 +61,7 @@ function resolveOptions(ctx: Context, getConfig: () => ConfigType, registry: Ada
 		// providers (AGENTS.md incident rule).
 		const wired = members.map((member, index) => (index === 0 ? rotatingKey(member) : member));
 		const adapter = chainOf(wired, { cooldowns }) ?? wired[0];
-		// Key ref resolution: the top-level apiKeyEnv is what the stock settings UI
+		// Key ref resolution: the top-level apiKeyEnv is what the settings card
 		// writes against (official-compatible); a provider subsection may override
 		// it for per-provider splits. No cross-provider fallback beyond that.
 		const providerSettings = ((config as Record<string, unknown>)[provider] ?? {}) as Record<string, unknown>;
@@ -125,7 +121,7 @@ function fetchTakeoverUnavailable(adapterId: string): WebError {
 	);
 }
 
-function makeFetchProvider(ctx: Context, resolveOpts: () => ResolvedOptions): WebFetchProvider {
+function makeFetchProvider(resolveOpts: () => ResolvedOptions): WebFetchProvider {
 	return {
 		id: "web-search-extend",
 		available: () => true,
@@ -154,49 +150,31 @@ function makeFetchProvider(ctx: Context, resolveOpts: () => ResolvedOptions): We
 	};
 }
 
-/** Register the replacement search provider with `ctx.web`. */
+/**
+ * The config reference cordis hands a plugin whose schema marks its root
+ * volatile: the value is read through `get()` and updates in place, so holding
+ * the reference is what keeps the provider live across a settings write.
+ */
+interface VolatileConfig {
+	get(): ConfigType | undefined;
+}
 
-function apply(ctx: Context, config: ConfigType): void {
+/** Register the replacement search provider with `ctx.web`. */
+function apply(ctx: Context, config: VolatileConfig): void {
 	const registry = createDefaultRegistry();
 	// D2: cooldown state lives in memory for the plugin's lifetime; a restart
 	// clears it and the engine is simply probed again.
 	const cooldowns = new CooldownBoard();
-	let current = () => config;
-	ctx.settings.installSection(ctx, WEB_SEARCH_SETTINGS_NAMESPACE, Config, config, {
-		setSource: (source) => {
-			current = source;
-		},
-		// Cross-field fallbacks validation (D3): the schema cannot know registry
-		// membership, so unknown ids / duplicates / self-reference reject the
-		// write here — the settings surface reports it instead of silently
-		// storing a chain that would never serve.
-		validate: (value) => {
-			const { problems } = resolveChain(registry, value.provider, value.fallbacks ?? []);
-			if (problems.length > 0) throw new Error(problems.join("; "));
-		},
-		// Keep the top-level apiKeyEnv aligned with the selected provider so the
-		// stock settings card's "key configured" badge follows the provider, not a
-		// stale ref. Any value in the managed default set follows the provider;
-		// an arbitrary user-declared ref is respected untouched.
-		onChange: () => {
-			const cfg = current();
-			const provider = cfg.provider ?? "tavily";
-			const target = PROVIDER_DEFAULT_API_KEY_ENVS[provider];
-			if (target === undefined) return;
-			const declared = cfg.apiKeyEnv;
-			const managedRefs: string[] = Object.values(PROVIDER_DEFAULT_API_KEY_ENVS);
-			const managed = declared === undefined || declared.length === 0 || managedRefs.includes(declared);
-			if (!managed || declared === target) return;
-			void ctx.settings?.update(WEB_SEARCH_SETTINGS_NAMESPACE, { apiKeyEnv: target }).catch(() => {});
-		},
-	});
+	// 0.1.7 drops the namespace-keyed settings surface: the entry's own volatile
+	// Config is the form, and this thunk is the single reader of it.
+	const current = (): ConfigType => config.get() ?? ConfigShape({});
 	const resolveOpts = resolveOptions(ctx, current, registry, cooldowns);
 	ctx.web.registerSearchProvider(new ExtensibleWebSearchProvider(resolveOpts));
 	const fetchProviders = () => [...(ctx.web as unknown as { fetchProviders: Map<string, WebFetchProvider> }).fetchProviders.values()];
 	ctx.web.registerFetchProvider(makeLocalFetchProvider(fetchProviders));
 	applyWebTools(ctx, resolveOpts, current().tools, { registry, config: current, cooldowns });
 	if (current().fetchBackend === "adapter") {
-		ctx.web.registerFetchProvider(makeFetchProvider(ctx, resolveOpts));
+		ctx.web.registerFetchProvider(makeFetchProvider(resolveOpts));
 	}
 }
 

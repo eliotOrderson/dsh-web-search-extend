@@ -49,7 +49,7 @@ export const DEEPSEEK_SEARCH_BASE_URL_ENV = "DEEPSEEK_SEARCH_BASE_URL";
  * `baseURL` are cross-cutting overrides; each adapter reads its own subsection
  * (`deepseek`, `tavily`) for backend-specific knobs.
  */
-export const Config = z.object({
+const ConfigShape = z.object({
 	provider: z.string().default(DEFAULT_PROVIDER),
 	apiKey: z.string().role("secret"),
 	apiKeyEnv: z.string().role("credential-ref").default(FIRECRAWL_API_KEY_ENV),
@@ -98,5 +98,15 @@ export const Config = z.object({
 	}),
 });
 
+/**
+ * The schema the entry publishes. 0.1.7 serves only volatile fields to its
+ * native settings form, so the marker sits on the root and every field below
+ * becomes editable without annotating each leaf.
+ */
+export const Config = ConfigShape.volatile();
+
+/** Plain config shape, unwrapped from the published volatile root. */
+export { ConfigShape };
+
 /** Parsed config type, derived from the schema (schemastery has no `z.infer`). */
-export type ConfigType = ReturnType<typeof Config>;
+export type ConfigType = ReturnType<typeof ConfigShape>;

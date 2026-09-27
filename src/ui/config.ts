@@ -38,8 +38,8 @@ export const FIELD_SPECS: Record<string, readonly FieldSpec[]> = {
         { key: "searchDepth", type: "select", options: ["basic", "advanced", "fast", "ultra-fast"], default: "basic" },
         { key: "topic", type: "select", options: ["general", "news", "finance"], default: "general" },
         { key: "maxResults", type: "number", default: 5 },
-        { key: "includeAnswer", type: "bool", default: true },
-        { key: "timeRange", type: "text", default: "" },
+        { key: "includeAnswer", type: "bool", default: false },
+        { key: "timeRange", type: "select", options: ["", "day", "week", "month", "year"], default: "" },
         { key: "extractDepth", type: "select", options: ["basic", "advanced"], default: "basic" },
         { key: "researchModel", type: "select", options: ["auto", "mini", "pro"], default: "auto" },
     ],
@@ -49,9 +49,15 @@ export const FIELD_SPECS: Record<string, readonly FieldSpec[]> = {
     ],
 };
 
-export const SETTINGS_NAMESPACE = "web-search-deepseek";
-export const SLOT_NAME = "settings.plugin.item";
-export const CARD_KEY = "web-search-deepseek";
-export const CARD_PRIORITY = -1;
-/** Ledger order matching the official settings tab (Shell, Agent Loop, subagent-model-selection, Web search). */
-export const CARD_ORDER: readonly string[] = ["shell", "agent-loop", "subagent-model-selection", "web-search-deepseek"];
+/**
+ * Bundle package name. 0.1.7 keys `plugins.bundle.config` by the bundle's
+ * package name, and renders the cell on that bundle's Plugins page between its
+ * description and its rows — the seat the removed `settings.plugin.item` card
+ * used to occupy.
+ */
+export const BUNDLE_PACKAGE = "@mr.robot/dsh-web-search-extend";
+/** Candidate Host entry ids carrying this plugin's config; the first served one wins. */
+export const ENTRY_IDS: readonly string[] = ["dsh-web-search-extend", "web-search-deepseek"];
+/** Used when the served directory cannot be read (mirror not loaded yet). */
+export const DEFAULT_ENTRY_ID = "dsh-web-search-extend";
+export const SLOT_NAME = "plugins.bundle.config";

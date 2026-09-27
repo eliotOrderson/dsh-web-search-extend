@@ -7,19 +7,20 @@ An **in-place replacement** for the official DeepSeek Harness web-search plugin
 
 - the **official web-search plugin is disabled** and this plugin takes over its exact slots:
   - cordis plugin name → `web-search-deepseek`
-  - Settings namespace → `web-search-deepseek` (**same config-page position & layout**, just extended)
+  - Settings entry → `dsh-web-search-extend`, falling back to `web-search-deepseek` when that is
+    the id the host serves
   - registered `ctx.web` provider id → `deepseek-official` (seam selection unchanged)
 - the agent **keeps using the old `web_search` tool** — nothing on the agent side changes;
   the tool still calls `ctx.web.search`, which now routes through this plugin into the configured
   **search provider** (Firecrawl keyless / Tavily / DeepSeek).
-- the config page shows a **first-class settings card** contributed through the
-  official `settings.plugin.item` slot, shadowing the stock WebSearchCard
-  (priority -1): a **provider selector listing every bundled engine**
-  (firecrawl-keyless / tavily / deepseek), a routing-mode select (provider-first
-  / local-only), per-provider parameter fields, its own API-key row, and i18n
-  (zh/en) labels + hints. The card reuses the official PluginCard CSS classes
-  (`YyYd_a_*`) and the official chevron SVG from `dsh-client-ui-primitives`.
-  `fallbacks` remains a settings-file/API key.
+- the config page shows a **first-class settings card** in the Plugins page's
+  `plugins.item` seat (id `web-search`, order 40), mounted while the host serves this plugin's
+  entry: a **provider selector listing every bundled engine** (firecrawl-keyless / tavily /
+  deepseek), a routing-mode control (provider-first / local-only), per-provider parameter fields,
+  its own API-key row, and i18n (zh/en) labels. Every control comes from the deployment's own
+  settings kit (`@deepseek-ai/dsh-client-ui-primitives`), so the card is styled like the rest of
+  the page; a choice row's explanation rides a hover bubble on the row title instead of a caption
+  above the control. `fallbacks` remains a settings-file/API key.
 - the card is a real React component (runtime `require("react")`), written in
   TypeScript under `src/ui/*.ts` and bundled into `lib/client.js` (never edit
   the artifact).
@@ -58,8 +59,10 @@ entry. After moving a tag, force re-resolution with
 `v0.2.4` routes card writes through `scope.mutate([{ op: "set", path, value }])`. The previous call
 targeted `scope.write(...)`, which no client version implements, and the local interface that
 declared it was only ever asserted onto the bound scope — so TypeScript could not catch the mistake
-and esbuild, which bundles the client half, never type-checks. `tests/ui-settings.test.ts` pins the
-write path against a stand-in carrying exactly the members the shipped client scope exposes.
+and esbuild, which bundles the client half, never type-checks. `tests/ui-settings.test.ts` pinned the
+write path against a stand-in carrying exactly the members the shipped client scope exposes; that
+test and the retired card it drove were removed when the page moved to the 0.1.7 `configForms`
+surface.
 
 `v0.2.1` also fixes a page hang on the plugins settings tab caused by an intermediate DOM-reordering
 attempt; the released card order fix is done purely on the slot ledger (no DOM mutation).
@@ -100,7 +103,7 @@ usable on every provider.
 | :--- | :--- | :--- |
 | `provider` | `firecrawl-keyless` | Which adapter serves each search: firecrawl-keyless / tavily / deepseek. |
 | `apiKey` | omitted | Literal key (secret role). The stock settings card writes the value into the ref named by `apiKeyEnv`, NOT into the settings file. |
-| `apiKeyEnv` | `FIRECRAWL_API_KEY` | Top-level credential ref: the settings card badge and save target. When it holds a managed ref (`TAVILY_API_KEY` / `DEEPSEEK_API_KEY` / `FIRECRAWL_API_KEY`), `apply()` re-syncs it to the active provider's default on provider change so the badge follows the provider. An arbitrary custom ref is respected untouched. |
+| `apiKeyEnv` | `FIRECRAWL_API_KEY` | Top-level credential ref: the card reads it to decide which ref to describe and write the key into, and no longer has a row of its own. When it holds a managed ref (`TAVILY_API_KEY` / `DEEPSEEK_API_KEY` / `FIRECRAWL_API_KEY`), `apply()` re-syncs it to the active provider's default on provider change, so the key field follows the provider. An arbitrary custom ref is respected untouched. |
 | `baseURL` | per-provider | Endpoint host root; falls back to the adapter env (`DEEPSEEK_SEARCH_BASE_URL` / `TAVILY_BASE_URL` / `FIRECRAWL_BASE_URL`). |
 | `fetchBackend` | `"local"` | `local`: existing fetch provider untouched. `"adapter"`: additionally registers a `web-search-extend` WebFetchProvider serving single-URL extract (requires NATIVE extract on the active adapter, e.g. tavily; select via `fetchProvider` / `DSH_WEB_FETCH_PROVIDER`). |
 | `compositeFallback` | `true` | When the active adapter has a native extract/crawl/map but the call fails, retry through the zero-quota local composite tier and mark the result with a warning. `false` surfaces the failure as-is. |
@@ -143,8 +146,8 @@ usable on every provider.
 ```
 
 Key refs are resolved per provider with NO cross-provider fallback (config.apiKeyEnv
-then provider-subsection apiKeyEnv then adapter default; see AGENTS.md for the badge
-mechanism and the managed-ref auto-sync).
+then provider-subsection apiKeyEnv then adapter default; the managed-ref auto-sync runs
+inside `apply()`, see AGENTS.md for the resolution order).
 
 
 ## Model-facing tools
@@ -303,13 +306,10 @@ src/
   adapters/           # adapter layer (one file per backend — pluggable)
   tools/              # model-facing tools (extract/crawl/map/research) + formatters
   ui/
-    client.ts         # entry: binds settings, registers the slot card, reorders entries
-    card.ts           # React PluginCard-style component (expand/collapse, official CSS)
-    fields.ts         # provider/route/api-key/param field factories
-    settings.ts       # settings-scope access wrapper (typed)
+    client.ts         # entry: binds the config form, registers the plugins.item card
     i18n.ts           # locale dictionary + translator
     config.ts         # providers/field specs/slot constants (typed)
-    types.ts          # DSH client context/service types
+    types.ts          # DSH client context/service types + the form-controller interface
     deepseek.ts       # DeepSeekAdapter (official Anthropic-compatible API, preserved)
     tavily.ts         # TavilyAdapter (keyless) + response mapping
     firecrawl.ts      # FirecrawlKeylessAdapter (all five ops, key optional) + response mapping
@@ -358,8 +358,8 @@ provider = one file implementing WebAdapter; the core never changes.
   doctor report (every member listed; nothing key-like in output) - all hermetic
   (fake fetch / mocked SDK, zero network).
 - Three-layer cold-path preflight (composition dry-run / resolve / client identity) passes.
-- Live (human): key storage per provider ref verified; badge follows provider; real
-  Tavily search/extract through the active provider.
+- Live (human): key storage per provider ref verified; the key field reports the resolved ref's
+  state; real Tavily search/extract through the active provider.
 
 
 ## Development

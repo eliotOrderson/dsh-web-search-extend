@@ -6,10 +6,10 @@
 
 - **停用官方 web-search 插件**，由本插件接管其全部槽位：
   - cordis 插件名 → `web-search-deepseek`
-  - Settings 配置段 → `web-search-deepseek`（**配置页同位置、同布局，只是扩展**）
+  - Settings 配置条目 → `dsh-web-search-extend`；当 host 提供的是 `web-search-deepseek` 时回落到它
   - 注册的 `ctx.web` provider id → `deepseek-official`（接缝选择不变）
 - agent **仍使用旧 `web_search` 工具**——agent 侧零改动；工具仍调 `ctx.web.search`，现在路由到本插件，并按配置的 **search 提供商**（Firecrawl keyless / Tavily / DeepSeek）执行。
-- 配置页展示**一等设置卡**：通过官方 `settings.plugin.item` 槽提交、以优先 -1 遮蔽官方 WebSearchCard——**provider 下拉列出全部内置引擎**（firecrawl-keyless / tavily / deepseek）、路由模式（优先提供商/仅本地）、随引擎显隐的参数字段、自带 API Key 输入行、中英双语标签与提示。卡片复用官方 PluginCard CSS（`YyYd_a_*`）与官方 chevron SVG（`dsh-client-ui-primitives`）。`fallbacks` 仍走配置文件/API。卡片用 TypeScript 编写于 `src/ui/*.ts`，构建压缩为 `lib/client.js`（**勿直接编辑产物**）。
+- 配置页展示**一等设置卡**：注册进 Plugins 页的 `plugins.item` 席位（id `web-search`、order 40），仅在 host 提供本插件条目时挂载——**provider 列出全部内置引擎**（firecrawl-keyless / tavily / deepseek）、路由模式（优先提供商/仅本地）、随引擎显隐的参数字段、自带 API Key 输入行、中英双语标签。所有控件都取自部署自带的设置套件（`@deepseek-ai/dsh-client-ui-primitives`），与页面其余部分同款样式；选择段的说明走**鼠标悬停在行标题上的气泡**，而不是控件上方的说明文字。`fallbacks` 仍走配置文件/API。卡片用 TypeScript 编写于 `src/ui/*.ts`，构建压缩为 `lib/client.js`（**勿直接编辑产物**）。
 
 分层模块化；适配层**可插拔，不锁死 Tavily**：内置 Firecrawl（开箱 keyless）、DeepSeek（官方后端，保留）、Tavily（**支持 keyless**）。
 
@@ -41,7 +41,8 @@ dsh plugin --profile web add github:eliotOrderson/dsh-web-search-extend#v0.2.4
 `v0.2.4` 让卡片写入走 `scope.mutate([{ op: "set", path, value }])`。此前的调用指向
 `scope.write(...)`，任何客户端版本都没有这个成员；而声明它的本地 interface 只是被断言到
 绑定出来的 scope 上，所以 TypeScript 抓不到，打包客户端半边的 esbuild 又从不做类型检查。
-`tests/ui-settings.test.ts` 用只带真实客户端 scope 成员的替身把这个写入路径钉住了。
+`tests/ui-settings.test.ts` 曾用只带真实客户端 scope 成员的替身把这个写入路径钉住；该测试与它驱动的
+退役卡片在页面迁到 0.1.7 `configForms` 接口时一并删除。
 
 `v0.2.3` 把 Firecrawl SDK 与它构建时使用的 `zod` / `zod-to-json-schema` 一起打进 bundle（两者
 现在都是 build 期 devDependencies）。经 profile 解析这对依赖正是此前安装失败的原因：当 profile
@@ -74,7 +75,7 @@ maxTokens / maxUses），从而自动跟随官方更新而非手工镜像。该�
 | :--- | :--- | :--- |
 | `provider` | `firecrawl-keyless` | 每次搜索使用哪个适配器：firecrawl-keyless / tavily / deepseek。 |
 | `apiKey` | 省略 | 字面 key（secret 角色）。官方设置卡会把值写入 `apiKeyEnv` 指向的 ref，而不是设置文件。 |
-| `apiKeyEnv` | `FIRECRAWL_API_KEY` | 顶层凭据引用：设置卡的 badge 与保存目标。当其值为受管 ref（`TAVILY_API_KEY` / `DEEPSEEK_API_KEY` / `FIRECRAWL_API_KEY`）时，`apply()` 会在 provider 变更时自动同步为当前 provider 的默认 ref，使 badge 跟随 provider；任意自定义 ref 不覆盖。 |
+| `apiKeyEnv` | `FIRECRAWL_API_KEY` | 顶层凭据引用：卡片读它来决定 describe / 写入哪个 ref，且不再为它单独出行。当其值为受管 ref（`TAVILY_API_KEY` / `DEEPSEEK_API_KEY` / `FIRECRAWL_API_KEY`）时，`apply()` 会在 provider 变更时自动同步为当前 provider 的默认 ref，于是密钥行跟随 provider；任意自定义 ref 不覆盖。 |
 | `baseURL` | 按 provider | 端点主机根；回退到适配器 env（`DEEPSEEK_SEARCH_BASE_URL` / `TAVILY_BASE_URL` / `FIRECRAWL_BASE_URL`）。 |
 | `fetchBackend` | `"local"` | `local`：不动现有 fetch provider。`"adapter"`：额外注册 `web-search-extend` WebFetchProvider 提供单 URL extract（要求当前适配器有**原生** extract，如 tavily；用 `fetchProvider` / `DSH_WEB_FETCH_PROVIDER` 选择）。 |
 | `compositeFallback` | `true` | 当前适配器原生支持 extract/crawl/map 但调用失败时，改用零配额的本地 composite 层重试，并在结果上附 warning；`false` 则直接抛出失败。 |
@@ -117,7 +118,7 @@ maxTokens / maxUses），从而自动跟随官方更新而非手工镜像。该�
 ```
 
 key ref 按 provider 各自解析，**无跨 provider 回退**（config.apiKeyEnv → 子节
-apiKeyEnv → adapter 默认；badge 机制与受管 ref 自动同步见 AGENTS.md）。
+apiKeyEnv → adapter 默认；受管 ref 的自动同步在 `apply()` 内，解析顺序见 AGENTS.md）。
 
 
 ## 模型面工具
@@ -257,13 +258,10 @@ src/
   adapters/           # 适配层（每后端一文件，可插拔）
   tools/              # 模型面工具（extract/crawl/map/research）+ 共享格式化器
   ui/
-    client.ts         # 入口：绑定 settings、注册 slot 卡、重排 entries
-    card.ts           # React PluginCard 风格卡片（展开/收起，官方 CSS）
-    fields.ts         # provider/route/api-key/param 字段工厂
-    settings.ts       # settings-scope 访问封装（类型化）
+    client.ts         # 入口：绑定配置表单、注册 plugins.item 卡片
     i18n.ts           # 语言字典 + translator
     config.ts         # providers/字段规格/slot 常量（类型化）
-    types.ts          # DSH client 上下文/服务类型
+    types.ts          # DSH client 上下文/服务类型 + 表单控制器接口
     deepseek.ts       # DeepSeekAdapter（官方 Anthropic-compatible API，保留）
     tavily.ts         # TavilyAdapter（keyless）+ 响应映射
     firecrawl.ts      # FirecrawlKeylessAdapter（全部五个操作，key 可选）+ 响应映射
@@ -308,7 +306,7 @@ WebAdapter 的文件；core 永远不改。
   attempts，直接成功保持静默）与离线 doctor 报告（列出全部成员；输出不含任何
   key 形态内容）——全离线（假 fetch / mock SDK，零网络）。
 - 三层冷启动 preflight（composition 试跑 / resolve / client 身份）通过。
-- 实机（人工）：各 provider ref 存储已验证；badge 跟随 provider；真实 Tavily search/extract。
+- 实机（人工）：各 provider ref 存储已验证；密钥行显示所解析 ref 的状态；真实 Tavily search/extract。
 
 
 ## 开发
