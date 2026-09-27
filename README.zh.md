@@ -33,16 +33,18 @@ profile 层安装在 dsh 0.1.7 上能正常启动的修订；该 tag 推送后�
 ## 版本兼容性
 
 `main` 始终对齐**最新的 dsh（含预发布）**；tag 对齐**已发布的最新 dsh**，且只在该 harness 正式发布后才打。
-你的 harness 有对应 tag 就装 tag，暂时没有就装上面那个已验证的 `main` 提交。表中每行写明它覆盖的版本线：
-“及以后”指该线之后的**所有**线；只支持单条线的 tag 会把该线的具体版本列出来。
+你的 harness 有对应 tag 就装 tag，暂时没有就装上面那个已验证的 `main` 提交。
 
-| Tag | 适用的 dsh 版本 |
+版本范围按**线**写：`0.1.5.x` 表示该线内所有版本（含预发布）；支持到线的边界为止——往上的下一条线是新的
+客户端面，只有某行点名了才表示覆盖。`0.1.6.x` 下面没有任何一行点名，因为没有任何发行版适配它。
+
+| Tag | 覆盖的 dsh 线 |
 | :-- | :---------- |
-| `v0.3.0` | **dsh 0.1.7 线及以后**——设置卡片改走 0.1.7 客户端面（绑定 `configForms.get(entryId)`、注册进 Plugins 页的 `plugins.item` 席位），且 Readability 正文提取的 DOM 从 jsdom 换成 linkedom——这正是 `github:` / registry 安装得以启动的原因。**不要装在 0.1.5 上**：客户端半边注入的服务该版本不提供，条目会一直 pending，浏览器启动随之中止 |
-| `v0.2.4` | **仅 dsh 0.1.5 线**（`0.1.5-rc.1` … `0.1.5-rc.3`，即今天的 `latest`）——设置卡片的写入重新走客户端真实的 `SettingsScope` API：此前调用的是根本不存在的 `scope.write(...)`，于是卡片上所有控件（provider、路由模式、API Key、各 provider 参数）全部静默失效，失败只落进 `console.warn`。**不适用于 0.1.6 / 0.1.7**：0.1.7 已移除 `SettingsScope`，而且在 `0.1.7-rc.2` 上条目会直接 import 失败（jsdom → `tr46` → `require("punycode/")`，profile 层安装被 harness 解析器抛错）。这两个版本请用 `v0.3.0` |
-| `v0.2.3` | **已被 `v0.2.4` 取代**——把 Firecrawl SDK 连同它所依赖的 `zod` / `zod-to-json-schema` 一起打进 `lib/index.js`，插件不再向 profile 安装 Firecrawl 或 zod 相关包；devDependencies 对齐已发布的 `0.1.5-rc.2` harness 线，`npm install` / `npm ci` 不需要额外 flag |
-| `v0.2.1` | **已被 `v0.2.4` 取代**——不要在 dsh 0.1.5-rc.1 上安装：其 loader entry 会因 Firecrawl SDK 的 `zod/v3` 依赖经 profile 解析而导入失败 |
-| `v0.2.0` | dsh 0.1.2-rc.1 之前的 0.1.x（旧 `installSettingsSection` API） |
+| `v0.3.0` | **`0.1.7.x`**——设置卡片改走 0.1.7 客户端面（绑定 `configForms.get(entryId)`、注册进 Plugins 页的 `plugins.item` 席位），且 Readability 正文提取的 DOM 从 jsdom 换成 linkedom——这正是 `github:` / registry 安装得以启动的原因。**不要装在 `0.1.5.x` 上**：客户端半边注入的服务该线不提供，条目会一直 pending，浏览器启动随之中止 |
+| `v0.2.4` | **`0.1.5.x`**——设置卡片的写入重新走客户端真实的 `SettingsScope` API：此前调用的是根本不存在的 `scope.write(...)`，于是卡片上所有控件（provider、路由模式、API Key、各 provider 参数）全部静默失效，失败只落进 `console.warn`。**不适用于 `0.1.6.x` / `0.1.7.x`**：0.1.7 已移除 `SettingsScope`，而且在 `0.1.7-rc.2` 上条目会直接 import 失败（jsdom → `tr46` → `require("punycode/")`，profile 层安装被 harness 解析器抛错）。这两条线请用 `v0.3.0` |
+| `v0.2.3` | **`0.1.5.x`**，已被 `v0.2.4` 取代——把 Firecrawl SDK 连同它所依赖的 `zod` / `zod-to-json-schema` 一起打进 `lib/index.js`，插件不再向 profile 安装 Firecrawl 或 zod 相关包；devDependencies 对齐已发布的 `0.1.5-rc.2` harness 线，`npm install` / `npm ci` 不需要额外 flag |
+| `v0.2.1` | **`0.1.5.x`**，已被 `v0.2.4` 取代——不要在 `0.1.5-rc.1` 上安装：其 loader entry 会因 Firecrawl SDK 的 `zod/v3` 依赖经 profile 解析而导入失败 |
+| `v0.2.0` | `0.1.2-rc.1` 之前的 `0.1.x`（旧 `installSettingsSection` API） |
 
 `v0.2.4` 让卡片写入走 `scope.mutate([{ op: "set", path, value }])`。此前的调用指向
 `scope.write(...)`，任何客户端版本都没有这个成员；而声明它的本地 interface 只是被断言到
