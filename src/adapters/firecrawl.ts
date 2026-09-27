@@ -7,7 +7,7 @@
  * shared monthly credits, so an exhausted keyless quota surfaces HTTP 402.
  * @module dsh-web-search-extend/adapters/firecrawl
  */
-import { Firecrawl, SdkError, type AgentResponse, type AgentStatusResponse, type CrawlOptions, type Document, type MapData, type MapOptions, type ScrapeOptions, type SearchData, type SearchResultWeb } from "firecrawl";
+import { Firecrawl, SdkError, type AgentResponse, type AgentStatusResponse, type CrawlOptions, type Document, type MapData, type MapOptions, type ScrapeOptions, type SearchData, type SearchRequest, type SearchResultNews, type SearchResultWeb } from "firecrawl";
 import { WebError, type WebSearchResult, type WebSearchSource } from "@deepseek-ai/dsh-web";
 import type {
 	AdapterRuntime,
@@ -26,6 +26,23 @@ import { FIRECRAWL_API_KEY_ENV, FIRECRAWL_BASE_URL_ENV, FIRECRAWL_DEFAULT_BASE_U
 
 /** Result cap when the request carries none (matches the tavily default). */
 const DEFAULT_MAX_RESULTS = 5;
+
+/**
+ * Search settings. Firecrawl has no `config` subsection, so the only search keys
+ * that ever appear here are the per-call filters `compileHints`
+ * (../core/hints.ts) writes — each one a named member of the installed
+ * `SearchRequest` (`firecrawl@4.35.0`). Absent keys leave the vendor call
+ * exactly as it was.
+ */
+interface FirecrawlSearchSettings {
+	limit?: number;
+	tbs?: string;
+	/** Locale filter; the installed `firecrawl` types it as a bare `string` and attests no accepted format. */
+	location?: string;
+	sources?: SearchRequest["sources"];
+	includeDomains?: readonly string[];
+	excludeDomains?: readonly string[];
+}
 
 /** Firecrawl keys are `fc-`-prefixed; any other non-empty value is a mis-stored ref. */
 const KEY_SHAPE = /^fc-/;
@@ -51,6 +68,17 @@ type FirecrawlSearchHit = SearchResultWeb | Document;
 /** True for the plain search-result shape; false means a scraped Document. */
 function isSearchResultWeb(item: FirecrawlSearchHit): item is SearchResultWeb {
 	return "url" in item;
+}
+
+/**
+ * One news hit. The news arm is its own shape rather than a `web` hit: it names
+ * the excerpt `snippet` (not `description`) and carries a `date`.
+ */
+type FirecrawlNewsHit = SearchResultNews | Document;
+
+/** True for a scraped Document; false means Firecrawl's plain news-result shape. */
+function isNewsDocument(item: FirecrawlNewsHit): item is Document {
+	return "metadata" in item;
 }
 
 function clientFor(runtime: AdapterRuntime): Firecrawl {
@@ -87,6 +115,21 @@ function mapFirecrawlResponse(response: SearchData): WebSearchResult {
 			url,
 			...(title != null && title.length > 0 ? { title } : {}),
 			...(description != null && description.length > 0 ? { snippet: description } : {}),
+		});
+	}
+	// A news topic compiles to `sources: ["news"]`, and those hits come back in
+	// the `news` arm — reading only `web` would answer an applied topic filter
+	// with an empty source list, which reads as "no results" rather than as a bug.
+	for (const item of response.news ?? []) {
+		const url = isNewsDocument(item) ? item.metadata?.sourceURL ?? item.metadata?.url : item.url;
+		if (url == null || url.length === 0 || seen.has(url)) continue;
+		seen.add(url);
+		const title = isNewsDocument(item) ? item.metadata?.title ?? item.metadata?.ogTitle : item.title;
+		const snippet = isNewsDocument(item) ? item.metadata?.description ?? item.metadata?.ogDescription : item.snippet;
+		sources.push({
+			url,
+			...(title != null && title.length > 0 ? { title } : {}),
+			...(snippet != null && snippet.length > 0 ? { snippet } : {}),
 		});
 	}
 	return { sources, truncated: false };
@@ -200,12 +243,24 @@ export const FirecrawlKeylessAdapter: SearchAdapter = {
 		return key === undefined || key.length === 0 || KEY_SHAPE.test(key);
 	},
 	async search(request: Parameters<SearchAdapter["search"]>[0], runtime: AdapterRuntime, signal?: AbortSignal): Promise<WebSearchResult> {
-		const limit = request.maxResults ?? DEFAULT_MAX_RESULTS;
-		runtime.recordRequest?.({ endpoint: `${runtime.baseURL}/v2/search`, params: { query: request.query, limit } });
+		const settings = runtime.settings as FirecrawlSearchSettings;
+		const params: Omit<SearchRequest, "query"> = {
+			limit: request.maxResults ?? settings.limit ?? DEFAULT_MAX_RESULTS,
+			...(settings.tbs !== undefined && settings.tbs.length > 0 ? { tbs: settings.tbs } : {}),
+			...(settings.location !== undefined && settings.location.length > 0 ? { location: settings.location } : {}),
+			...(settings.sources !== undefined && settings.sources.length > 0 ? { sources: [...settings.sources] } : {}),
+			...(settings.includeDomains !== undefined && settings.includeDomains.length > 0
+				? { includeDomains: [...settings.includeDomains] }
+				: {}),
+			...(settings.excludeDomains !== undefined && settings.excludeDomains.length > 0
+				? { excludeDomains: [...settings.excludeDomains] }
+				: {}),
+		};
+		runtime.recordRequest?.({ endpoint: `${runtime.baseURL}/v2/search`, params: { query: request.query, ...params } });
 		throwIfAborted(signal);
 		const client = clientFor(runtime);
 		try {
-			return mapFirecrawlResponse(await client.search(request.query, { limit }));
+			return mapFirecrawlResponse(await client.search(request.query, params));
 		} catch (error) {
 			throw normalizeFirecrawlError(error, runtime);
 		}

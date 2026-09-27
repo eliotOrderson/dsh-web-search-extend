@@ -68,6 +68,8 @@ const ConfigShape = z.object({
 	 */
 	routeMode: z.string().default("provider-first"),
 	tools: z.object({
+		/** Register `web_search_scoped` (explicit time/topic/locale/domain filters). */
+		scoped: z.boolean().default(true),
 		extract: z.boolean().default(true),
 		crawl: z.boolean().default(true),
 		map: z.boolean().default(true),

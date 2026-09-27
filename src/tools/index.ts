@@ -12,12 +12,15 @@ import type { CooldownBoard } from "../core/cooldown.js";
 import type { ConfigType } from "../config.js";
 import { applyCrawlTool } from "./crawl.js";
 import { applyDoctorTool, type DoctorCacheReport } from "./doctor.js";
+import { applyScopedSearchTool, type ScopedSearchPlanner, type ScopedSearchRunner } from "./scoped.js";
 import { applyExtractTool } from "./extract.js";
 import { applyMapTool } from "./map.js";
 import { applyResearchStatusTool, applyResearchSubmitTool } from "./research.js";
 
 /** Registration gates; `config.tools.*` maps straight onto this. */
 export interface WebToolsGates {
+	/** `web_search_scoped`: the same search with explicitly named filters. */
+	readonly scoped: boolean;
 	readonly extract: boolean;
 	readonly crawl: boolean;
 	readonly map: boolean;
@@ -43,8 +46,18 @@ function seamFetch(ctx: Context): FetchLike {
 }
 
 /** Register every enabled web tool plus the shared prompt guidance block. */
-export function applyWebTools(ctx: Context, resolveOptions: () => ResolvedOptions, gates: WebToolsGates, doctor?: DoctorWiring): void {
+export function applyWebTools(
+	ctx: Context,
+	resolveOptions: () => ResolvedOptions,
+	gates: WebToolsGates,
+	doctor?: DoctorWiring,
+	scopedPlanner?: ScopedSearchPlanner,
+	scopedRunner?: ScopedSearchRunner,
+): void {
 	const fetch = seamFetch(ctx);
+	if (gates.scoped && scopedPlanner !== undefined && scopedRunner !== undefined) {
+		applyScopedSearchTool(ctx, scopedPlanner, scopedRunner, { enabled: true });
+	}
 	applyExtractTool(ctx, resolveOptions, fetch, { enabled: gates.extract });
 	applyCrawlTool(ctx, resolveOptions, fetch, { enabled: gates.crawl });
 	applyMapTool(ctx, resolveOptions, fetch, { enabled: gates.map });
@@ -53,11 +66,12 @@ export function applyWebTools(ctx: Context, resolveOptions: () => ResolvedOption
 	if (gates.doctor && doctor !== undefined) {
 		applyDoctorTool(ctx, doctor, { enabled: true });
 	}
-	if (!gates.extract && !gates.crawl && !gates.map && !gates.research) return;
+	if (!gates.extract && !gates.crawl && !gates.map && !gates.research && !gates.scoped) return;
 	ctx.systemPrompt.section({
 		name: "tool:dsh-web-search-extend",
 		order: 112,
 		text: [
+			"When the request names a search constraint — a time window, a topic, a country, or particular sites — use web_search_scoped instead of web_search, so the filter reaches the provider natively; its result states which filters were applied and which the active provider could not express.",
 			"When you already know the URL and clean text matters (several pages, or fetch's markdown noise hurts), prefer web_extract over web_fetch.",
 			"web_crawl and web_map have native quality on some providers and fall back to a simpler built-in crawl/sitemap pass on others.",
 			"web_research costs credits: submit once, then poll web_research_status patiently with gaps of at least 20 seconds instead of re-submitting.",

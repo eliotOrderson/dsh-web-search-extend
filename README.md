@@ -121,6 +121,7 @@ usable on every provider.
 | `tools.extract` | `true` | Register `web_extract`. |
 | `tools.crawl` | `true` | Register `web_crawl`. |
 | `tools.map` | `true` | Register `web_map`. |
+| `tools.scoped` | `true` | Register `web_search_scoped` (explicit time / topic / locale / domain filters). |
 | `tools.research` | `true` | Register `web_research` + `web_research_status` (credits-heavy). |
 | `tools.doctor` | `true` | Register `web_doctor` (offline diagnostics; zero network/quota). |
 | `limits.extractMaxUrls` | `10` | Max URLs per web_extract call. |
@@ -172,12 +173,50 @@ inside `apply()`, see AGENTS.md for the resolution order).
 | Tool | Args | Behavior |
 | :--- | :--- | :--- |
 | `web_search` | `queries: string[]` | Official tool, unchanged - routes through the selected provider. |
+| `web_search_scoped` | `query`, `provider?`, `maxResults?`, `timeRange?` (enum `day\|week\|month\|year`), `afterDate?`, `topic?`, `locale?`, `includeDomains?`, `excludeDomains?` | Search with filters the CALLER names, compiled into each provider's native parameters. Reports which filters were applied and which the active provider cannot express. A named `provider` is used exactly and is not folded into the failover chain. |
 | `web_extract` | `urls: string[]`, `query?`, `format?` | Readable content of known URLs (markdown/text). Native on tavily / firecrawl; universal composite fallback. |
 | `web_crawl` | `url`, `maxPages?`, `includeDomains?`, `excludeDomains?` | Bounded crawl of a site. Native on tavily / firecrawl; BFS composite fallback. |
 | `web_map` | `url`, `maxUrls?` | Enumerate site URLs. Native on tavily / firecrawl; sitemap/robots composite fallback. |
 | `web_research` | `input` | Submit an async deep-research task (credits!); returns requestId. |
 | `web_research_status` | `requestId` | Poll one research task to a terminal phase; then returns content + sources. |
 | `web_doctor` | (none) | Offline readiness report: every registered engine with key-ref status (booleans only, never values), endpoint source (config/env/default), cooldown windows, availability verdict, and the resolved effective chain. Zero network, zero quota. |
+
+### Why `web_search_scoped` exists, and why it does not parse your query
+
+`web_search` is the seam's own tool and its signature is `{ query, maxResults? }`;
+widening it would change the agent-facing surface this plugin exists to leave
+alone. So the filters travel on a sibling tool instead, and the CALLER supplies
+them — nothing here parses the query text for words like "latest" or "this week",
+so there is no keyword list to maintain and no guess to get wrong. The freshness
+vocabulary is deliberately closed: `timeRange` is an enum of four tiers and
+`afterDate` takes an absolute `YYYY-MM-DD`, because a free-form string field is
+what lets a spelling the compiler cannot map disappear without the caller
+noticing. A malformed `afterDate`, or both freshness fields at once, is refused
+with an error rather than quietly searched without the bound.
+
+The CALLER supplies the filters: by the time a model decides to call it, it already understood that "this
+week" or "only docs.example.com" was asked, so asking for the filter costs no
+extra inference. Inferring it from query text would be a guess, and a guess that
+silently narrows a search is one the caller cannot see.
+
+What remains is mechanical translation, and one mapping per provider:
+
+| Filter | tavily | firecrawl-keyless | deepseek |
+| :--- | :--- | :--- | :--- |
+| freshness | `timeRange` (nearest tier) or `startDate` | `tbs=qdr:*` (relative only) | ignored |
+| topic | `topic` | `sources: ["news"]` | ignored |
+| locale | `country` | `location` | ignored |
+| domains | `includeDomains` / `excludeDomains` | same, and never both at once | ignored |
+
+Every result states which filters reached the provider (`Search (tavily,
+freshness, topic)`) and names the ones that did not, because a filter silently
+dropped turns "nothing was published this week" into a lie. When more than one
+member could answer — a configured failover chain, or a named provider — a filter
+is compiled only if EVERY member can express it: a chain serves from whichever
+member answers, so a hint some hops ignore would change meaning per hop. Two
+bounds are worth knowing: `locale` has an unattested format in both SDKs (the
+caller's string is passed through unvalidated), and `deepseek` expresses no
+filter at all, so on that provider every filter is reported as ignored.
 
 Tools stay registered regardless of the active provider - switching provider only
 changes which tier (native / composite / unsupported) serves each call. Research
@@ -261,10 +300,14 @@ With `fallbacks` set, the provider wraps `[primary, ...fallbacks]` into one
   just refused; a window that already expired, or one further out than the ceiling,
   is dropped on load, and the failure streak survives an expired window exactly as
   it does in a process that stayed up.
-- **Result cache** - `web_search` only (extract/crawl/map/research still always
-  reach the network). Identical query + answer-affecting config is served from
-  memory for `cache.ttlSeconds`; the key covers the adapter, the provider, the base
-  URL, the settings snapshot and the request, never the credential. A hit is a
+- **Result cache** - both search entry points (`web_search` through the seam
+  provider, `web_search_scoped` through its runner) share ONE store, so a scoped
+  call and a plain call never serve each other's answer: the key covers the
+  compiled settings too, and different filters are therefore different entries.
+  extract/crawl/map/research still always reach the network. Identical query +
+  answer-affecting config is served from memory for `cache.ttlSeconds`; the key
+  covers the adapter, the provider, the base URL, the settings snapshot and the
+  request, never the credential. A hit is a
   degraded success: it carries `cache hit (age Ns)` on the `warnings[]` trail and
   **no** `attempts[]`, because no member ran. Cached results survive a restart along
   with the cooldown board, and a state file that cannot be written degrades the
@@ -384,7 +427,7 @@ provider = one file implementing WebAdapter; the core never changes.
 
 ## Verified
 
-- **249 vitest tests** (`tests/`): router ladder, capability pinning (tavily/firecrawl: all five
+- **326 vitest tests** (`tests/`): router ladder, capability pinning (tavily/firecrawl: all five
   ops; deepseek: search-only), composite fixtures (sitemap parse, HTML conversion,
   BFS cycle safety, per-page failure isolation), Tavily mappings for every response
   shape, Firecrawl keyless (mocked fetch: all five op mappings, auth-header rules,
@@ -395,6 +438,10 @@ provider = one file implementing WebAdapter; the core never changes.
   attempts on degraded results/errors, silence on direct success), and the offline
   doctor report (every member listed; nothing key-like in output) - all hermetic
   (fake fetch / mocked SDK, zero network).
+- **Scoped search**: hint normalization (every accepted spelling and the unusable ones), the
+  per-adapter mapping tables against the installed SDK types, the chain intersection including its
+  single-member identity property, the scope line's honest labelling of ignored filters, and the
+  tool's argument validation.
 - **Cache and state**: store behaviour (TTL expiry, LRU order, defensive load), the
   provider seam that mounts it (a repeat query never dispatches, a hit is marked and
   fabricates no attempt, a caller's mutation cannot reach the stored entry), atomic

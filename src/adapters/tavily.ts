@@ -37,13 +37,23 @@ import type {
 } from "../types.js";
 import { TAVILY_DEFAULT_BASE_URL } from "../config.js";
 
-/** Tavily-specific settings read from `config.tavily`. */
+/**
+ * Tavily-specific settings. `config.tavily` supplies the durable defaults; the
+ * per-call filters compiled by `compileHints` (../core/hints.ts) arrive in the
+ * same flat shape and have already overwritten the keys they own, so a key read
+ * here is the effective one whichever layer set it.
+ */
 interface TavilySettings {
 	searchDepth?: string;
 	topic?: string;
 	maxResults?: number;
 	includeAnswer?: boolean;
 	timeRange?: string;
+	/** Locale filter; the installed `@tavily/core` types it as a bare `string` and attests no accepted format. */
+	country?: string;
+	startDate?: string;
+	includeDomains?: readonly string[];
+	excludeDomains?: readonly string[];
 	extractDepth?: string;
 	researchModel?: string;
 }
@@ -145,6 +155,14 @@ export const TavilyAdapter: SearchAdapter = {
 			includeAnswer: settings.includeAnswer ?? false,
 			...(settings.timeRange && settings.timeRange.length > 0
 				? { timeRange: settings.timeRange as TavilySearchOptions["timeRange"] }
+				: {}),
+			...(settings.country !== undefined && settings.country.length > 0 ? { country: settings.country } : {}),
+			...(settings.startDate !== undefined && settings.startDate.length > 0 ? { startDate: settings.startDate } : {}),
+			...(settings.includeDomains !== undefined && settings.includeDomains.length > 0
+				? { includeDomains: [...settings.includeDomains] }
+				: {}),
+			...(settings.excludeDomains !== undefined && settings.excludeDomains.length > 0
+				? { excludeDomains: [...settings.excludeDomains] }
 				: {}),
 		};
 		runtime.recordRequest?.({ endpoint: `${runtime.baseURL}/search`, params });

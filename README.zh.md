@@ -91,6 +91,7 @@ maxTokens / maxUses），从而自动跟随官方更新而非手工镜像。该�
 | `tools.extract` | `true` | 注册 `web_extract`。 |
 | `tools.crawl` | `true` | 注册 `web_crawl`。 |
 | `tools.map` | `true` | 注册 `web_map`。 |
+| `tools.scoped` | `true` | 注册 `web_search_scoped`（显式的时间 / 主题 / 地区 / 域名过滤）。 |
 | `tools.research` | `true` | 注册 `web_research` + `web_research_status`（耗 credits）。 |
 | `tools.doctor` | `true` | 注册 `web_doctor`（离线诊断；零网络/零配额）。 |
 | `limits.extractMaxUrls` | `10` | 每次 web_extract 的最大 URL 数。 |
@@ -140,12 +141,42 @@ apiKeyEnv → adapter 默认；受管 ref 的自动同步在 `apply()` 内，解
 | 工具 | 参数 | 行为 |
 | :--- | :--- | :--- |
 | `web_search` | `queries: string[]` | 官方工具，未改动——经所选 provider 路由。 |
+| `web_search_scoped` | `query`、`provider?`、`maxResults?`、`timeRange?`（枚举 `day\|week\|month\|year`）、`afterDate?`、`topic?`、`locale?`、`includeDomains?`、`excludeDomains?` | 由**调用方显式命名**过滤条件，编译成各 provider 的原生参数。结果会报告哪些过滤生效、哪些当前 provider 表达不了。指定 `provider` 时精确使用该 provider，不并入失效转移链。 |
 | `web_extract` | `urls: string[]`、`query?`、`format?` | 已知 URL 的可读内容（markdown/text）。tavily / firecrawl 原生；通用 composite 兜底。 |
 | `web_crawl` | `url`、`maxPages?`、`includeDomains?`、`excludeDomains?` | 站点有界爬取。tavily / firecrawl 原生；BFS composite 兜底。 |
 | `web_map` | `url`、`maxUrls?` | 枚举站点 URL。tavily / firecrawl 原生；sitemap/robots composite 兜底。 |
 | `web_research` | `input` | 提交异步深度研究任务（耗 credits！）；返回 requestId。 |
 | `web_research_status` | `requestId` | 轮询研究任务到终态；随后返回内容 + 来源列表。 |
 | `web_doctor` | （无） | 离线就绪报告：列出每个已注册引擎的 key-ref 状态（仅布尔，绝不出值）、端点来源（config/env/default）、冷却窗口、可用性判定与解析后的生效链。零网络、零配额。 |
+
+### 为什么要有 `web_search_scoped`，以及为什么不解析你的查询
+
+`web_search` 是 seam 自带的工具，签名是 `{ query, maxResults? }`；加宽它就动了这个
+插件存在的前提——"agent 侧什么都不变"。所以过滤条件走同级的另一个工具，而且由
+**调用方**提供——这里**不会**去查询文本里找"最新""本周"这类词，因此没有词表要维护，
+也没有猜错的机会。时间窗的词表是**封闭**的：`timeRange` 是四档枚举，`afterDate` 接
+绝对日期 `YYYY-MM-DD`；一个自由字符串字段正是让"编译器认不出的拼法"悄悄消失的原因。
+`afterDate` 格式非法、或两个时间字段同时给出，都会**报错**，而不是无声地按无约束搜索。
+
+**调用方**提供过滤条件：模型决定调用它的那一刻，早已理解"本周"或"只搜 docs.example.com"
+是什么意思，把过滤作为参数问出来不需要任何额外推理。从查询文本去猜则是另一回事，
+而一个会静默收窄搜索的猜测，调用方根本看不见。
+
+剩下的是机械翻译，每个 provider 一张映射表：
+
+| 过滤 | tavily | firecrawl-keyless | deepseek |
+| :--- | :--- | :--- | :--- |
+| 时间窗口 | `timeRange`（最近档位）或 `startDate` | `tbs=qdr:*`（仅相对形式） | 忽略 |
+| 主题 | `topic` | `sources: ["news"]` | 忽略 |
+| 地区 | `country` | `location` | 忽略 |
+| 域名 | `includeDomains` / `excludeDomains` | 同上，且两者绝不同时下发 | 忽略 |
+
+每个结果都会写明哪些过滤真正到达了 provider（`Search (tavily, freshness, topic)`），
+并点名没能到达的那些——被静默丢弃的过滤会把"本周没有任何发布"变成一句假话。当可能有
+多个成员应答（配置了失效转移链，或指名 provider）时，只有**每个成员都能表达**的过滤
+才会被编译：链由谁应答取决于谁先成功，某个跳次会忽略的条件会让含义随跳次漂移。两个
+已知边界：`locale` 在两个 SDK 里都**没有可验证的格式**（调用方的字符串原样透传、不做
+校验），而 `deepseek` 表达不了任何过滤，在它上面所有过滤都会被报为 ignored。
 
 工具不随 provider 切换而消失——切换 provider 只改变每个调用走哪一层
 （native / composite / unsupported）。research 由随包 `cordis.patch.yml` 条目配置默认
@@ -215,9 +246,12 @@ keyless 上限 / 端点不可用）。在凭据服务（Models 页）配置 TAVI
   的窗口与计数。冷却板会持久化到 `<state dir>/state.json`，重启后接着走完剩余
   窗口，而不是立刻再去撞刚拒绝过我们的引擎；加载时丢弃已过期、以及超出上限的
   窗口，而失败计数在窗口过期后保留——与「进程一直没重启」的内存语义一致。
-- **结果缓存** —— 只作用于 `web_search`（extract/crawl/map/research 仍然每次都
-  走网络）。相同的查询 + 影响答案的配置在 `cache.ttlSeconds` 内由内存直接服务；
-  key 覆盖适配器、provider、base URL、settings 快照与请求本身，绝不包含凭据。
+- **结果缓存** —— 两个搜索入口（经 seam provider 的 `web_search`、经自身 runner 的
+  `web_search_scoped`）**共用同一个存储**，所以带过滤与不带过滤的调用不会互相serve
+  对方的答案：key 也覆盖编译后的 settings，不同过滤条件天然是不同条目。
+  extract/crawl/map/research 仍然每次都走网络。相同的查询 + 影响答案的配置在
+  `cache.ttlSeconds` 内由内存直接服务；key 覆盖适配器、provider、base URL、
+  settings 快照与请求本身，绝不包含凭据。
   命中属于降级成功：它会在 `warnings[]` 轨迹上带 `cache hit (age Ns)`，且**不带**
   `attempts[]`——因为没有任何成员被调用过。缓存与冷却板一起跨重启存活；状态文件
   写不进去时插件静默退化为纯内存，绝不会变成搜索失败。
@@ -327,7 +361,7 @@ WebAdapter 的文件；core 永远不改。
 
 ## 已验证
 
-- **249 个 vitest 测试**（`tests/`）：路由阶梯、能力 pinning（tavily/firecrawl 五操作；
+- **326 个 vitest 测试**（`tests/`）：路由阶梯、能力 pinning（tavily/firecrawl 五操作；
   deepseek 仅 search）、composite fixtures（sitemap 解析、HTML 转换、BFS 环路安全、单页失败隔离）、
   Tavily 全部响应形状映射、Firecrawl keyless（mock fetch：五个操作映射、鉴权头规则、
   402/429 配额/限流错误、research-keyless 401）、ChainAdapter 故障转移（可切换 vs 不可切换、原生能力跳过、

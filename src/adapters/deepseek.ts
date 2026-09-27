@@ -104,6 +104,11 @@ export const DeepSeekAdapter: SearchAdapter = {
 					content: [{ type: "text", text: `Perform a web search for the query: ${request.query}` }],
 				},
 			],
+			// The ported request shape carries `max_uses` alone (the official package
+			// declares exactly these three keys), so no freshness, topic or domain
+			// argument exists to carry a per-call hint into. `compileHints`
+			// (../core/hints.ts) compiles every filter hint to nothing for this
+			// adapter and reports it as unsupported; the omission is that decision.
 			tools: [{ type: "web_search_20250305", name: "web_search", max_uses: settings.maxUses ?? DEEPSEEK_DEFAULT_MAX_USES }],
 		};
 		runtime.recordRequest?.({ endpoint, params: { apiVersion: settings.apiVersion ?? DEEPSEEK_DEFAULT_API_VERSION, body } });

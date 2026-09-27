@@ -11,10 +11,8 @@
 import { WebError, type WebSearchProvider, type WebSearchRequest, type WebSearchResult } from "@deepseek-ai/dsh-web";
 import type { AdapterRuntime, SearchAdapter } from "../types.js";
 import { abortable, isAbortError, searchAborted, throwIfSearchAborted } from "./abort.js";
-import { cacheKey, canonicalize, ResultCache } from "./cache.js";
-// Type-only: the cache reuses the chain's additive degradation trail shape, so
-// a caller switching on `WithAttempts` reads a cache hit and a failover alike.
-import type { WithAttempts } from "./chain.js";
+import type { ResultCache } from "./cache.js";
+import { runCachedSearch } from "./cacheSession.js";
 import { credentialMissing, providerError } from "./errors.js";
 
 /** One search's fully-resolved options, snapshotted by a thunk. */
@@ -28,6 +26,12 @@ export interface ResolvedOptions {
 	baseURL: string;
 	adapter: SearchAdapter | undefined;
 	settings: Record<string, unknown>;
+	/**
+	 * Adapter ids that could answer this call, in chain order. `web_search_scoped`
+	 * needs them because a hint is only compiled when EVERY possible member can
+	 * express it — see `compileHintsForChain`.
+	 */
+	memberIds?: readonly string[];
 	recordRequest?: (request: { endpoint: string; params: unknown }) => void;
 }
 
@@ -38,41 +42,6 @@ export interface ResolvedOptions {
  * and any existing `searchProvider: deepseek-official` config keeps working.
  */
 export const SEARCH_PROVIDER_ID = "deepseek-official";
-
-/**
- * Answer-affecting config folded into a cache key. Deliberately excludes the
- * credential: a key is not a secret-keeping device, and the same question
- * answered by the same endpoint at the same settings deserves the same answer
- * no matter which key paid for it.
- */
-function cacheSignature(o: ResolvedOptions): string {
-	// An array replacer would be a whitelist applied at EVERY depth, so a nested
-	// settings object (the `limits` block today) would encode as `{}` and a change
-	// inside it would keep serving the old answer. canonicalize sorts keys at all
-	// depths instead, and is total: an unencodable value cannot throw here.
-	return canonicalize([o.adapter?.id ?? o.provider, o.provider, o.baseURL, o.settings]) ?? o.provider;
-}
-
-/**
- * Copy a cached result so the caller can never mutate what we keep: the stored
- * object is replayed to every later hit inside the TTL window.
- */
-function copyResult(result: WebSearchResult): WebSearchResult {
-	return { ...result, sources: result.sources.map((source) => ({ ...source })) };
-}
-
-/**
- * Rebuild the seam's own result shape from a stored payload. Spreading the
- * cached entry would replay whatever the chain stamped onto the ORIGINAL call —
- * a failover success carries `attempts`, and replaying it here would report an
- * engine as having run inside a call that dispatched nothing.
- */
-function hitResult(cached: WebSearchResult & WithAttempts, ageSeconds: number): WebSearchResult & WithAttempts {
-	const sources = cached.sources.map((source) => ({ ...source }));
-	const content = cached.content;
-	const warnings = [...(cached.warnings ?? []), `cache hit (age ${ageSeconds}s)`];
-	return Object.assign({ sources, truncated: cached.truncated, ...(content === undefined ? {} : { content }) }, { warnings });
-}
 
 /**
  * The web capability's search provider. Its id is always `deepseek-official`
@@ -109,19 +78,25 @@ export class ExtensibleWebSearchProvider implements WebSearchProvider {
 
 	async search(request: WebSearchRequest, signal?: AbortSignal): Promise<WebSearchResult> {
 		const o = this.resolveOptions();
-		const key = this.cache === undefined ? undefined : cacheKey({ op: "search", providerId: o.adapter?.id ?? o.provider, request, signature: cacheSignature(o) });
-		if (key !== undefined) {
-			const hit = this.cache!.getWithAge<WebSearchResult>(key);
-			// Enabled is read per call, not latched at mount: a settings write that
-			// switches the tier off must stop HITS, not only future stores.
-			if (hit !== undefined && this.cacheEnabled()) {
-				// A hit is a DEGRADED success — the payload was not fetched now and
-				// may be up to a TTL old — so it always carries the trail, and never
-				// an attempts entry: no member ran, and a fabricated one would
-				// surface in doctor output as a real engine.
-				return hitResult(hit.value as WebSearchResult & WithAttempts, Math.floor(hit.ageMs / 1000));
-			}
-		}
+		const dispatch = async (): Promise<WebSearchResult> => this.dispatch(o, request, signal);
+		if (this.cache === undefined) return dispatch();
+		return runCachedSearch(
+			{
+				cache: this.cache,
+				adapterId: o.adapter?.id ?? o.provider,
+				provider: o.provider,
+				baseURL: o.baseURL,
+				settings: o.settings,
+				enabled: this.cacheEnabled,
+				...(this.onCacheWrite === undefined ? {} : { onWrite: this.onCacheWrite }),
+			},
+			request,
+			dispatch,
+		);
+	}
+
+	/** One uncached attempt: credential resolution, dispatch, error taxonomy. */
+	private async dispatch(o: ResolvedOptions, request: WebSearchRequest, signal?: AbortSignal): Promise<WebSearchResult> {
 		const { adapter, runtime } = await resolveExecution(o, signal);
 		let result: WebSearchResult;
 		try {
@@ -130,13 +105,6 @@ export class ExtensibleWebSearchProvider implements WebSearchProvider {
 			if (signal?.aborted === true || isAbortError(error)) throw searchAborted(signal, error);
 			if (error instanceof WebError) throw error;
 			throw providerError(`Search via "${o.provider}" failed: ${String(error)}`, { cause: error });
-		}
-		if (key !== undefined) {
-			// Store a copy, not the adapter's object: the same reference is about to
-			// be handed to the caller, and a caller that mutates what it received
-			// would otherwise rewrite the entry every later hit replays.
-			this.cache!.set(key, copyResult(result));
-			this.onCacheWrite?.();
 		}
 		return result;
 	}

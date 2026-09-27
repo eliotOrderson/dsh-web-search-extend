@@ -16,14 +16,19 @@
 import type { Context } from "@deepseek-ai/cordis";
 import { credentialRef } from "@deepseek-ai/dsh-credentials";
 import { launchEnvironmentOf } from "@deepseek-ai/dsh-launch-environment";
-import { WebError, type WebFetchProvider } from "@deepseek-ai/dsh-web";
+import { WebError, type WebFetchProvider, type WebSearchResult } from "@deepseek-ai/dsh-web";
 import { Config, ConfigShape, type ConfigType } from "./config.js";
 import { capabilitiesOf } from "./core/capabilities.js";
 import { DEFAULT_MAX_ENTRIES, DEFAULT_TTL_MS, ResultCache } from "./core/cache.js";
 import { ExtensibleWebSearchProvider, resolveExecution, type ResolvedOptions } from "./core/provider.js";
+import { runCachedSearch } from "./core/cacheSession.js";
+import { abortable, isAbortError, searchAborted } from "./core/abort.js";
+import { providerError } from "./core/errors.js";
+import type { ExecutionTarget } from "./core/provider.js";
 import { execute } from "./core/router.js";
 import { AdapterRegistry } from "./core/registry.js";
 import { chainOf, resolveChain } from "./core/chain.js";
+import type { SearchAdapter } from "./types.js";
 import { CooldownBoard, loadBoard } from "./core/cooldown.js";
 import { readState, resolveStateDir, writeState } from "./core/state.js";
 import { rotatingKey } from "./core/rotating-key.js";
@@ -31,6 +36,7 @@ import { makeLocalFetchProvider } from "./core/localFetch.js";
 import { createDefaultRegistry } from "./adapters/index.js";
 import { applyWebTools } from "./tools/index.js";
 import type { DoctorCacheReport } from "./tools/doctor.js";
+import type { ScopedSearchPlanner, ScopedSearchRequest, ScopedSearchRunner } from "./tools/scoped.js";
 
 /** Cordis plugin name — independent from the official one on purpose. */
 const name = "dsh-web-search-extend";
@@ -64,6 +70,7 @@ function resolveOptions(ctx: Context, getConfig: () => ConfigType, registry: Ada
 		// providers (AGENTS.md incident rule).
 		const wired = members.map((member, index) => (index === 0 ? rotatingKey(member) : member));
 		const adapter = chainOf(wired, { cooldowns }) ?? wired[0];
+		const memberIds = wired.map((member) => member.id);
 		// Key ref resolution: the top-level apiKeyEnv is what the settings card
 		// writes against (official-compatible); a provider subsection may override
 		// it for per-provider splits. No cross-provider fallback beyond that.
@@ -95,6 +102,7 @@ function resolveOptions(ctx: Context, getConfig: () => ConfigType, registry: Ada
 			apiKeyEnv: apiKeyEnvName,
 			baseURL,
 			adapter,
+			memberIds,
 			settings,
 			recordRequest: (request) => {
 				ctx.get("agents")?.currentInitiator()?.session.append("web/deepseek-search-llm-request", request);
@@ -202,7 +210,81 @@ function apply(ctx: Context, config: VolatileConfig): void {
 	ctx.web.registerSearchProvider(provider);
 	const fetchProviders = () => [...(ctx.web as unknown as { fetchProviders: Map<string, WebFetchProvider> }).fetchProviders.values()];
 	ctx.web.registerFetchProvider(makeLocalFetchProvider(fetchProviders));
-	applyWebTools(ctx, resolveOpts, current().tools, { registry, config: current, cooldowns, cacheInfo });
+
+	/**
+	 * Dispatch for `web_search_scoped`. Two rules make it differ from the seam
+	 * provider on purpose:
+	 * - a NAMED provider is used exactly as named and is NOT wrapped in the
+	 *   failover chain: an engine-specific source (a platform search, say) that
+	 *   silently falls back becomes a general web search, i.e. a different answer
+	 *   to the question that was asked;
+	 * - filters are compiled per adapter, so the chain case compiles to what EVERY
+	 *   member can express rather than to what the first one happens to support.
+	 */
+	/**
+	 * Resolution for `web_search_scoped`, shared by its planner and runner so the
+	 * two phases cannot disagree about which provider serves. Two rules make it
+	 * differ from the seam provider on purpose:
+	 * - a NAMED provider is used exactly as named and is NOT wrapped in the
+	 *   failover chain: an engine-specific source (a platform search, say) that
+	 *   silently falls back becomes a general web search, i.e. a different answer
+	 *   to the question that was asked;
+	 * - filters are compiled per adapter, so the chain case compiles to what EVERY
+	 *   member can express rather than to what the first one happens to support.
+	 */
+	const scopedTarget = async (request: ScopedSearchRequest, signal?: AbortSignal): Promise<{ options: ResolvedOptions; target: ExecutionTarget }> => {
+		const o = resolveOpts();
+		const named = request.provider === undefined ? undefined : registry.get(request.provider);
+		if (request.provider !== undefined && named === undefined) {
+			const known = registry.list().map((adapter) => adapter.id).join(", ");
+			throw new WebError(`Unknown provider "${request.provider}" for web_search_scoped. Registered providers: ${known}.`, "WEB_PROVIDER_CONFIGURED_MISSING");
+		}
+		const wired =
+			named === undefined
+				? (o.memberIds ?? []).map((id) => registry.get(id)).filter((adapter): adapter is SearchAdapter => adapter !== undefined)
+				: [named];
+		// Key rotation wraps only the member that will actually serve, mirroring the
+		// seam chain's rule: a resolved key belongs to one provider's own ref.
+		const serving = wired.length === 0 ? o.adapter : rotatingKey(wired[0]!);
+		if (serving === undefined) throw new WebError("No search provider is available for web_search_scoped.", "WEB_PROVIDER_UNAVAILABLE");
+		const options: ResolvedOptions = { ...o, adapter: serving, memberIds: wired.map((member) => member.id), settings: request.settings };
+		return { options, target: await resolveExecution(options, signal) };
+	};
+
+	const scopedPlanner: ScopedSearchPlanner = async (request, signal) => {
+		const { options, target } = await scopedTarget(request, signal);
+		return { adapter: target.adapter, runtime: { ...target.runtime, settings: request.settings }, memberIds: options.memberIds ?? [] };
+	};
+
+	const scopedRunner: ScopedSearchRunner = async (request, signal) => {
+		const { options, target } = await scopedTarget(request, signal);
+		const vendorRequest = { query: request.query, ...(request.maxResults === undefined ? {} : { maxResults: request.maxResults }) };
+		const dispatch = async (): Promise<WebSearchResult> => {
+			try {
+				return await abortable(target.adapter.search(vendorRequest, target.runtime, signal), signal);
+			} catch (error) {
+				if (signal?.aborted === true || isAbortError(error)) throw searchAborted(signal, error);
+				if (error instanceof WebError) throw error;
+				throw providerError(`Scoped search via "${options.adapter?.id ?? options.provider}" failed: ${String(error)}`, { cause: error });
+			}
+		};
+		if (!cacheEnabled) return dispatch();
+		return runCachedSearch(
+			{
+				cache,
+				adapterId: options.adapter?.id ?? options.provider,
+				provider: request.provider ?? options.provider,
+				baseURL: options.baseURL,
+				settings: request.settings,
+				enabled: () => current().cache?.enabled !== false,
+				onWrite: persist,
+			},
+			vendorRequest,
+			dispatch,
+		);
+	};
+
+	applyWebTools(ctx, resolveOpts, current().tools, { registry, config: current, cooldowns, cacheInfo }, scopedPlanner, scopedRunner);
 	if (current().fetchBackend === "adapter") {
 		ctx.web.registerFetchProvider(makeFetchProvider(resolveOpts));
 	}
