@@ -51,6 +51,7 @@ entry. After moving a tag, force re-resolution with
 
 | Tag | dsh version |
 | :-- | :---------- |
+| `v0.3.0` | **dsh 0.1.7-rc.2 and later** — the settings card moves to the 0.1.7 client surface: it binds `configForms.get(entryId)` and registers into the Plugins page's `plugins.item` seat. Do **not** install it on 0.1.5: the client half injects a service that release does not provide, so the entry stays pending and the browser boot aborts |
 | `v0.2.4` | **dsh 0.1.5-rc.1 and later** — the settings card writes through the client's real `SettingsScope` API again: it called a non-existent `scope.write(...)`, so every control on the card (provider, routing mode, API key, per-provider parameters) silently did nothing while the write failure went to `console.warn` |
 | `v0.2.3` | **superseded by `v0.2.4`** — the Firecrawl SDK is bundled into `lib/index.js` together with the `zod` / `zod-to-json-schema` pair it was built against, so the plugin installs no Firecrawl or zod package into the profile at all; devDependencies track the published `0.1.5-rc.2` harness line, so `npm install` / `npm ci` resolve without extra flags |
 | `v0.2.1` | **superseded by `v0.2.4`** — do not install it on dsh 0.1.5-rc.1: its loader entry fails to import because the Firecrawl SDK's `zod/v3` dependency resolves through the profile |

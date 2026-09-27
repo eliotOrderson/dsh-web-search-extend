@@ -33,6 +33,7 @@ dsh plugin --profile web add github:eliotOrderson/dsh-web-search-extend#v0.2.4
 
 | Tag | 适用的 dsh 版本 |
 | :-- | :---------- |
+| `v0.3.0` | **dsh 0.1.7-rc.2 及以后**——设置卡片改走 0.1.7 客户端面：绑定 `configForms.get(entryId)`、注册进 Plugins 页的 `plugins.item` 席位。**不要装在 0.1.5 上**：客户端半边注入的服务该版本不提供，条目会一直 pending，浏览器启动随之中止 |
 | `v0.2.4` | **dsh 0.1.5-rc.1 及以后**——设置卡片的写入重新走客户端真实的 `SettingsScope` API：此前调用的是根本不存在的 `scope.write(...)`，于是卡片上所有控件（provider、路由模式、API Key、各 provider 参数）全部静默失效，失败只落进 `console.warn` |
 | `v0.2.3` | **已被 `v0.2.4` 取代**——把 Firecrawl SDK 连同它所依赖的 `zod` / `zod-to-json-schema` 一起打进 `lib/index.js`，插件不再向 profile 安装 Firecrawl 或 zod 相关包；devDependencies 对齐已发布的 `0.1.5-rc.2` harness 线，`npm install` / `npm ci` 不需要额外 flag |
 | `v0.2.1` | **已被 `v0.2.4` 取代**——不要在 dsh 0.1.5-rc.1 上安装：其 loader entry 会因 Firecrawl SDK 的 `zod/v3` 依赖经 profile 解析而导入失败 |
