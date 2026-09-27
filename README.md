@@ -39,20 +39,21 @@ official plugin — that bundled entry is the authoritative takeover mechanism (
 disable from older setups is redundant but harmless).
 
 ```bash
-dsh plugin --profile web add github:eliotOrderson/dsh-web-search-extend#v0.2.4
+dsh plugin --profile web add github:eliotOrderson/dsh-web-search-extend#48cb333
 ```
 
-The `#` fragment is a pnpm git ref: tag, branch, commit SHA, or `#semver:<range>`. Prebuilt
-`lib/` artifacts are committed, so installation needs no build step and no pnpm `allowBuilds`
-entry. After moving a tag, force re-resolution with
+The `#` fragment is a pnpm git ref: tag, branch, commit SHA, or `#semver:<range>`. The SHA above is
+the revision that lets a profile-layer install boot on dsh 0.1.7; `#v0.3.0` takes its place once that
+tag is pushed. Prebuilt `lib/` artifacts are committed, so installation needs no build step and no
+pnpm `allowBuilds` entry. After moving a tag, force re-resolution with
 `dsh plugin --profile web update dsh-web-search-extend`.
 
 ## Version compatibility
 
 | Tag | dsh version |
 | :-- | :---------- |
-| `v0.3.0` | **dsh 0.1.7-rc.2 and later** — the settings card moves to the 0.1.7 client surface: it binds `configForms.get(entryId)` and registers into the Plugins page's `plugins.item` seat. Do **not** install it on 0.1.5: the client half injects a service that release does not provide, so the entry stays pending and the browser boot aborts |
-| `v0.2.4` | **dsh 0.1.5-rc.1 and later** — the settings card writes through the client's real `SettingsScope` API again: it called a non-existent `scope.write(...)`, so every control on the card (provider, routing mode, API key, per-provider parameters) silently did nothing while the write failure went to `console.warn` |
+| `v0.3.0` | **dsh 0.1.7-rc.2 and later** — the settings card moves to the 0.1.7 client surface (it binds `configForms.get(entryId)` and registers into the Plugins page's `plugins.item` seat), and the Readability pass takes its DOM from linkedom instead of jsdom, which is what lets a `github:`/registry install boot at all. Do **not** install it on 0.1.5: the client half injects a service that release does not provide, so the entry stays pending and the browser boot aborts |
+| `v0.2.4` | **dsh 0.1.5-rc.1 and later, but not on 0.1.7-rc.2** — the settings card writes through the client's real `SettingsScope` API again: it called a non-existent `scope.write(...)`, so every control on the card (provider, routing mode, API key, per-provider parameters) silently did nothing while the write failure went to `console.warn`. On 0.1.7-rc.2 the entry **fails to import** instead: its jsdom dependency reaches `tr46`'s `require("punycode/")`, which the harness resolver throws on for a profile-layer install (fixed in `v0.3.0`) |
 | `v0.2.3` | **superseded by `v0.2.4`** — the Firecrawl SDK is bundled into `lib/index.js` together with the `zod` / `zod-to-json-schema` pair it was built against, so the plugin installs no Firecrawl or zod package into the profile at all; devDependencies track the published `0.1.5-rc.2` harness line, so `npm install` / `npm ci` resolve without extra flags |
 | `v0.2.1` | **superseded by `v0.2.4`** — do not install it on dsh 0.1.5-rc.1: its loader entry fails to import because the Firecrawl SDK's `zod/v3` dependency resolves through the profile |
 | `v0.2.0` | dsh 0.1.x before 0.1.2-rc.1 (legacy `installSettingsSection` API) |

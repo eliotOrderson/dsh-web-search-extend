@@ -22,19 +22,20 @@
 机制（早期遗留的手动 disable 属冗余但无害）。
 
 ```bash
-dsh plugin --profile web add github:eliotOrderson/dsh-web-search-extend#v0.2.4
+dsh plugin --profile web add github:eliotOrderson/dsh-web-search-extend#48cb333
 ```
 
-`#` 后缀是 pnpm 的 git ref：tag、分支、commit SHA 或 `#semver:<范围>`。仓库直接提交构建好的
-`lib/`，安装无需构建步骤，也不需要 pnpm `allowBuilds` 放行。tag 挪动后用
+`#` 后缀是 pnpm 的 git ref：tag、分支、commit SHA 或 `#semver:<范围>`。上面这个 SHA 是让
+profile 层安装在 dsh 0.1.7 上能正常启动的修订；该 tag 推送后由 `#v0.3.0` 取代。仓库直接提交
+构建好的 `lib/`，安装无需构建步骤，也不需要 pnpm `allowBuilds` 放行。tag 挪动后用
 `dsh plugin --profile web update dsh-web-search-extend` 强制重新解析。
 
 ## 版本兼容性
 
 | Tag | 适用的 dsh 版本 |
 | :-- | :---------- |
-| `v0.3.0` | **dsh 0.1.7-rc.2 及以后**——设置卡片改走 0.1.7 客户端面：绑定 `configForms.get(entryId)`、注册进 Plugins 页的 `plugins.item` 席位。**不要装在 0.1.5 上**：客户端半边注入的服务该版本不提供，条目会一直 pending，浏览器启动随之中止 |
-| `v0.2.4` | **dsh 0.1.5-rc.1 及以后**——设置卡片的写入重新走客户端真实的 `SettingsScope` API：此前调用的是根本不存在的 `scope.write(...)`，于是卡片上所有控件（provider、路由模式、API Key、各 provider 参数）全部静默失效，失败只落进 `console.warn` |
+| `v0.3.0` | **dsh 0.1.7-rc.2 及以后**——设置卡片改走 0.1.7 客户端面（绑定 `configForms.get(entryId)`、注册进 Plugins 页的 `plugins.item` 席位），且 Readability 正文提取的 DOM 从 jsdom 换成 linkedom——这正是 `github:` / registry 安装得以启动的原因。**不要装在 0.1.5 上**：客户端半边注入的服务该版本不提供，条目会一直 pending，浏览器启动随之中止 |
+| `v0.2.4` | **dsh 0.1.5-rc.1 及以后，但不要装在 0.1.7-rc.2 上**——设置卡片的写入重新走客户端真实的 `SettingsScope` API：此前调用的是根本不存在的 `scope.write(...)`，于是卡片上所有控件（provider、路由模式、API Key、各 provider 参数）全部静默失效，失败只落进 `console.warn`。在 0.1.7-rc.2 上它的条目会**无法 import**：其 jsdom 依赖触达 `tr46` 的 `require("punycode/")`，profile 层安装时被 harness 解析器抛错（`v0.3.0` 已修） |
 | `v0.2.3` | **已被 `v0.2.4` 取代**——把 Firecrawl SDK 连同它所依赖的 `zod` / `zod-to-json-schema` 一起打进 `lib/index.js`，插件不再向 profile 安装 Firecrawl 或 zod 相关包；devDependencies 对齐已发布的 `0.1.5-rc.2` harness 线，`npm install` / `npm ci` 不需要额外 flag |
 | `v0.2.1` | **已被 `v0.2.4` 取代**——不要在 dsh 0.1.5-rc.1 上安装：其 loader entry 会因 Firecrawl SDK 的 `zod/v3` 依赖经 profile 解析而导入失败 |
 | `v0.2.0` | dsh 0.1.2-rc.1 之前的 0.1.x（旧 `installSettingsSection` API） |
