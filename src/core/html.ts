@@ -6,7 +6,7 @@
  */
 import TurndownService from "turndown";
 import { gfm } from "@joplin/turndown-plugin-gfm";
-import { JSDOM } from "jsdom";
+import { parseHTML } from "linkedom";
 import { Readability } from "@mozilla/readability";
 import { createDocument } from "domino";
 
@@ -112,11 +112,17 @@ function exceedsConversionDepth(html: string): boolean {
 	return false;
 }
 
-/** Extract the main article body with Mozilla Readability; undefined when it cannot. */
+/**
+ * Extract the main article body with Mozilla Readability; undefined when it cannot.
+ *
+ * The DOM comes from linkedom rather than jsdom: jsdom reaches `tr46`, which
+ * calls `require("punycode/")`, and the harness resolver throws on that request
+ * when the dependency sits in the profile layer (see the tr46 note in AGENTS.md).
+ * Readability returns the same text on either DOM.
+ */
 function readableContent(html: string): string | undefined {
 	try {
-		const dom = new JSDOM(html);
-		const article = new Readability(dom.window.document).parse();
+		const article = new Readability(parseHTML(html).document).parse();
 		return article?.content ?? undefined;
 	} catch {
 		return undefined;

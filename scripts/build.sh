@@ -25,7 +25,7 @@ fi
 echo "=== Bundling host → lib/index.js ==="
 "$ESBUILD" src/index.ts --bundle --format=esm --platform=node --target=node18 --outfile=lib/index.js --minify --tree-shaking --log-level=info \
     --external:@deepseek-ai/* --external:react --external:turndown --external:@joplin/turndown-plugin-gfm \
-    --external:@mozilla/readability --external:jsdom --external:domino --external:ipaddr.js --external:undici \
+    --external:@mozilla/readability --external:linkedom --external:domino --external:ipaddr.js --external:undici \
     --external:@tavily/core --external:axios
 
 echo "=== Bundling invariant → lib/invariant.js ==="
