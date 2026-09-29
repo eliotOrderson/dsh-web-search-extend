@@ -39,20 +39,20 @@ official plugin — that bundled entry is the authoritative takeover mechanism (
 disable from older setups is redundant but harmless).
 
 ```bash
-dsh plugin --profile web add github:eliotOrderson/dsh-web-search-extend#48cb333
+dsh plugin --profile web add github:eliotOrderson/dsh-web-search-extend#v0.3.0
 ```
 
-The `#` fragment is a pnpm git ref: tag, branch, commit SHA, or `#semver:<range>`. The SHA above is
-the revision that lets a profile-layer install boot on dsh 0.1.7; `#v0.3.0` takes its place once that
-tag is pushed. Prebuilt `lib/` artifacts are committed, so installation needs no build step and no
-pnpm `allowBuilds` entry. After moving a tag, force re-resolution with
+The `#` fragment is a pnpm git ref: tag, branch, commit SHA, or `#semver:<range>`. The tag above is
+the release for the `0.1.7.x` line. Prebuilt `lib/` artifacts are committed, so installation needs no
+build step and no pnpm `allowBuilds` entry. After moving a tag, force re-resolution with
 `dsh plugin --profile web update dsh-web-search-extend`.
 
 ## Version compatibility
 
 `main` always targets the newest dsh, prereleases included, while a tag targets the newest **released**
-dsh and is cut only after that release ships. Install the tag that matches your harness, or the pinned
-`main` commit above while no tag does yet.
+dsh and is cut only after that release ships. Install the tag that matches your harness. When no tag
+names your line, `main` is the only candidate, and it is expected to fail on older lines rather than
+degrade.
 
 Ranges are named by **line** — `0.1.5.x` means every release in that line, prereleases included — and
 support ends at the line boundary: the next line up is a new surface, covered only when a row names it.

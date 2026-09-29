@@ -160,3 +160,17 @@ version-compatibility table, because no version guard can carry it - nothing in 
 published dsh reads `dsh.engines`, and a profile never resolves
 `peerDependencies`. Any dependency added later must be checked for
 `<core-module>/` requires before it lands in a profile layer.
+
+## 2026-09-29 — v0.3.0 released for the 0.1.7 line
+
+Status: APPROVED (user).
+
+Context: The gate set on 2026-09-27 was "v0.3.0 stays untagged until 0.1.7 leaves `next`". 0.1.7
+left it: `@deepseek-ai/dsh` now publishes `latest` = 0.1.7-rc.2 and `next` = 0.2.0-rc.1, 0.1.7-rc.2
+having been promoted to `latest` when 0.2.0-rc.1 shipped on 2026-09-28.
+
+Decision: Cut `v0.3.0` on `main` for the `0.1.7.x` line, and pin the README install snippet to
+`#v0.3.0` in place of the `48cb333` SHA it carried while no tag matched the harness.
+
+Consequences: A `0.1.7.x` install no longer needs a commit SHA. The `0.1.5.x` reader keeps `v0.2.4`,
+and `0.2.0.x` is covered by no release until a tag is cut for that line.

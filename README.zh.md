@@ -22,18 +22,17 @@
 机制（早期遗留的手动 disable 属冗余但无害）。
 
 ```bash
-dsh plugin --profile web add github:eliotOrderson/dsh-web-search-extend#48cb333
+dsh plugin --profile web add github:eliotOrderson/dsh-web-search-extend#v0.3.0
 ```
 
-`#` 后缀是 pnpm 的 git ref：tag、分支、commit SHA 或 `#semver:<范围>`。上面这个 SHA 是让
-profile 层安装在 dsh 0.1.7 上能正常启动的修订；该 tag 推送后由 `#v0.3.0` 取代。仓库直接提交
-构建好的 `lib/`，安装无需构建步骤，也不需要 pnpm `allowBuilds` 放行。tag 挪动后用
-`dsh plugin --profile web update dsh-web-search-extend` 强制重新解析。
+`#` 后缀是 pnpm 的 git ref：tag、分支、commit SHA 或 `#semver:<范围>`。上面这个 tag 就是
+`0.1.7.x` 线的发行版。仓库直接提交构建好的 `lib/`，安装无需构建步骤，也不需要 pnpm
+`allowBuilds` 放行。tag 挪动后用 `dsh plugin --profile web update dsh-web-search-extend` 强制重新解析。
 
 ## 版本兼容性
 
 `main` 始终对齐**最新的 dsh（含预发布）**；tag 对齐**已发布的最新 dsh**，且只在该 harness 正式发布后才打。
-你的 harness 有对应 tag 就装 tag，暂时没有就装上面那个已验证的 `main` 提交。
+你的 harness 有对应 tag 就装 tag；没有任何 tag 点名你的线时只剩 `main`，而它在较旧的线上是预期失败而非降级。
 
 版本范围按**线**写：`0.1.5.x` 表示该线内所有版本（含预发布）；支持到线的边界为止——往上的下一条线是新的
 客户端面，只有某行点名了才表示覆盖。`0.1.6.x` 下面没有任何一行点名，因为没有任何发行版适配它。
